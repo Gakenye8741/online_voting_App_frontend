@@ -1,0 +1,39 @@
+{
+  "cli": {
+    "version": ">= 16.28.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "node": "20.x",
+      "pnpmVersion": "10.22.0",
+      "channel": "development",
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "preview": {
+      "node": "20.x",
+      "pnpmVersion": "10.22.0",
+      "channel": "preview",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "node": "20.x",
+      "pnpmVersion": "10.22.0",
+      "channel": "production",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
