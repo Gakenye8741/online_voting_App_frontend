@@ -1,141 +1,134 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// -------------------- TYPES --------------------
 export interface Notification {
   id: string;
-  user_id?: string | null;
+  _id?: string; 
   title: string;
   message: string;
-  type: "SYSTEM" | "ANNOUNCEMENT" | "ELECTION" | "REMINDER" | "ALERT";
   is_read: boolean;
-  election_id?: string | null;
-  candidate_id?: string | null;
-  position_id?: string | null;
-  sender_id?: string | null;
-  created_at?: string;
+  createdAt: string;
+  user_id: string;
 }
 
-export interface CreateNotificationPayload {
-  user_id?: string;
-  title: string;
-  message: string;
-  type: "SYSTEM" | "ANNOUNCEMENT" | "ELECTION" | "REMINDER" | "ALERT";
-  is_read?: boolean;
-  election_id?: string;
-  candidate_id?: string;
-  position_id?: string;
+interface NotificationsResponse {
+  notifications: Notification[];
+  success?: boolean;
 }
 
-export interface BulkNotificationPayload {
-  userIds: string[];
-  payload: Omit<CreateNotificationPayload, "user_id">;
-}
+const baseQuery = fetchBaseQuery({
+  baseUrl: "https://online-voting-system-oq4p.onrender.com/api/notifications", // Pointing directly to the notification segment
+  prepareHeaders: async (headers) => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      if (token) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
+    } catch (error) {
+      console.error("Error fetching token", error);
+    }
+    headers.set("Content-Type", "application/json");
+    return headers;
+  },
+});
 
-// -------------------- API --------------------
 export const notificationApi = createApi({
   reducerPath: "notificationApi",
-  baseQuery: fetchBaseQuery({
-    baseUrl: "http://localhost:5000/api/notifications",
-    prepareHeaders: async (headers) => {
-      // Load token from AsyncStorage
-      const token = await AsyncStorage.getItem("token");
-      if (token) headers.set("Authorization", `Bearer ${token}`);
-      headers.set("Content-Type", "application/json");
-      return headers;
-    },
-  }),
-  tagTypes: ["Notification"],
+  baseQuery,
+  tagTypes: ["Notifications"],
   endpoints: (builder) => ({
-    createNotification: builder.mutation<Notification, CreateNotificationPayload>({
-      query: (payload) => ({
-        url: "create",
-        method: "POST",
-        body: payload,
-      }),
-      invalidatesTags: ["Notification"],
-    }),
-    sendBulkNotifications: builder.mutation<{ count: number }, BulkNotificationPayload>({
-      query: (payload) => ({
-        url: "bulk",
-        method: "POST",
-        body: payload,
-      }),
-      invalidatesTags: ["Notification"],
-    }),
-    sendNotificationToAll: builder.mutation<{ count: number }, Omit<CreateNotificationPayload, "user_id">>({
-      query: (payload) => ({
-        url: "broadcast",
-        method: "POST",
-        body: payload,
-      }),
-      invalidatesTags: ["Notification"],
-    }),
+    // GET /api/notifications (Admin)
     getAllNotifications: builder.query<Notification[], void>({
-      query: () => ({
-        url: "",
-        method: "GET",
+      query: () => "/",
+      transformResponse: (response: NotificationsResponse | Notification[]) => 
+        Array.isArray(response) ? response : response.notifications || [],
+      providesTags: ["Notifications"],
+    }),
+    
+    // GET /api/notifications/user/:userId (User)
+    getUserNotifications: builder.query<Notification[], string>({
+      query: (userId) => `/user/${userId}`,
+      transformResponse: (response: NotificationsResponse | Notification[]) => 
+        Array.isArray(response) ? response : response.notifications || [],
+      providesTags: ["Notifications"],
+    }),
+
+    // POST /api/notifications/create (Admin)
+    createNotification: builder.mutation<any, Partial<Notification>>({
+      query: (body) => ({
+        url: "/create",
+        method: "POST",
+        body,
       }),
-      transformResponse: (response: { notifications: Notification[] }) => response.notifications,
-      providesTags: ["Notification"],
+      invalidatesTags: ["Notifications"],
     }),
-    getNotificationsForUser: builder.query<Notification[], void>({
-      query: async () => {
-        const userId = await AsyncStorage.getItem("userId");
-        return {
-          url: `user/${userId}`,
-          method: "GET",
-        };
-      },
-      transformResponse: (response: { notifications: Notification[] }) => response.notifications,
-      providesTags: ["Notification"],
+
+    // POST /api/notifications/bulk (Admin)
+    sendBulkNotifications: builder.mutation<any, { userIds: string[]; payload: any }>({
+      query: (body) => ({
+        url: "/bulk",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: ["Notifications"],
     }),
-    markNotificationAsRead: builder.mutation<{ message: string }, { id: string }>({
-      query: ({ id }) => ({
-        url: `mark-read/${id}`,
+
+    // POST /api/notifications/broadcast (Admin)
+    broadcastNotification: builder.mutation<any, any>({
+      query: (body) => ({
+        url: "/broadcast",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: ["Notifications"],
+    }),
+
+    // PUT /api/notifications/mark-read/:id (User)
+    markAsRead: builder.mutation<any, string>({
+      query: (id) => ({
+        url: `/mark-read/${id}`, // Updated to match back-end route :id
         method: "PUT",
       }),
-      invalidatesTags: ["Notification"],
+      invalidatesTags: ["Notifications"],
     }),
-    markAllNotificationsAsRead: builder.mutation<{ message: string }, void>({
-      query: async () => {
-        const userId = await AsyncStorage.getItem("userId");
-        return {
-          url: `mark-all-read/${userId}`,
-          method: "PUT",
-        };
-      },
-      invalidatesTags: ["Notification"],
+
+    // PUT /api/notifications/mark-all-read/:userId (User)
+    markAllRead: builder.mutation<any, string>({
+      query: (userId) => ({
+        url: `/mark-all-read/${userId}`,
+        method: "PUT",
+      }),
+      invalidatesTags: ["Notifications"],
     }),
-    deleteNotification: builder.mutation<{ message: string }, { id: string }>({
-      query: ({ id }) => ({
-        url: `delete/${id}`,
+
+    // DELETE /api/notifications/delete/:id (Admin)
+    deleteNotification: builder.mutation<any, string>({
+      query: (id) => ({
+        url: `/delete/${id}`,
         method: "DELETE",
       }),
-      invalidatesTags: ["Notification"],
+      invalidatesTags: ["Notifications"],
     }),
-    deleteAllNotificationsForUser: builder.mutation<{ message: string }, void>({
-      query: async () => {
-        const userId = await AsyncStorage.getItem("userId");
-        return {
-          url: `delete-all/${userId}`,
-          method: "DELETE",
-        };
-      },
-      invalidatesTags: ["Notification"],
+
+    // DELETE /api/notifications/delete-all/:userId (Admin)
+    deleteAllUserNotifications: builder.mutation<any, string>({
+      query: (userId) => ({
+        url: `/delete-all/${userId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: ["Notifications"],
     }),
   }),
 });
 
-// -------------------- HOOKS --------------------
 export const {
+  useGetAllNotificationsQuery,
+  useGetUserNotificationsQuery,
   useCreateNotificationMutation,
   useSendBulkNotificationsMutation,
-  useSendNotificationToAllMutation,
-  useGetAllNotificationsQuery,
-  useGetNotificationsForUserQuery,
-  useMarkNotificationAsReadMutation,
-  useMarkAllNotificationsAsReadMutation,
+  useBroadcastNotificationMutation,
+  useMarkAsReadMutation,
+  useMarkAllReadMutation,
   useDeleteNotificationMutation,
-  useDeleteAllNotificationsForUserMutation,
+  useDeleteAllUserNotificationsMutation,
 } = notificationApi;

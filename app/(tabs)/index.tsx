@@ -87,14 +87,17 @@ const ParticipationTracker = ({ totalVotes, totalVoters }: { totalVotes: number;
   const percentage = totalVoters > 0 ? (totalVotes / totalVoters) * 100 : 0;
   return (
     <View style={styles.trackerContainer}>
-      <div style={styles.trackerTextRow}>
+      {/* FIXED: Changed <div> to <View> */}
+      <View style={styles.trackerTextRow}>
         <Text style={styles.trackerLabel}>Voter Participation</Text>
         <Text style={styles.trackerPercent}>{percentage.toFixed(1)}%</Text>
-      </div>
+      </View>
       <View style={styles.progressBackground}>
+        {/* FIXED: Changed "stretchX" to "fadeInLeft" as stretchX isn't a valid built-in animation */}
         <Animatable.View 
-          animation="stretchX" 
+          animation="fadeInLeft" 
           duration={1500}
+          useNativeDriver
           style={[styles.progressFill, { width: `${percentage}%` }]} 
         />
       </View>
@@ -188,15 +191,19 @@ export default function Home() {
 
   useEffect(() => {
     const loadUser = async () => {
-      const userData = await AsyncStorage.getItem("user");
-      if (userData) {
-        const parsed: User = JSON.parse(userData);
-        setUser({
-          name: parsed.name || "User",
-          school: parsed.school || "",
-          role: parsed.role || "Voter",
-          reg_no: parsed.reg_no || "",
-        });
+      try {
+        const userData = await AsyncStorage.getItem("user");
+        if (userData) {
+          const parsed: User = JSON.parse(userData);
+          setUser({
+            name: parsed.name || "User",
+            school: parsed.school || "",
+            role: parsed.role || "Voter",
+            reg_no: parsed.reg_no || "",
+          });
+        }
+      } catch (e) {
+        console.error("Failed to load user storage", e);
       }
     };
     loadUser();
@@ -219,7 +226,9 @@ export default function Home() {
         });
         const data: { positions: Position[] } = await res.json();
         const map: Record<string, string> = {};
-        data.positions.forEach((pos) => (map[pos.id] = pos.name));
+        if (data.positions) {
+          data.positions.forEach((pos) => (map[pos.id] = pos.name));
+        }
         setPositionsMap(map);
       } catch (err) {
         console.error("Failed to load positions:", err);

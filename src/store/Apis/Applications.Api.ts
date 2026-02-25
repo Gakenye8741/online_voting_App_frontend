@@ -12,7 +12,7 @@ export interface CandidateApplication {
   election_id: string;
   election_name?: string;      // <-- add this
   manifesto: string;
-  documents_url: string[];
+  photo_url: string[];
   school: string;
   school_dean_status?: "PENDING" | "APPROVED" | "REJECTED";
   accounts_status?: "PENDING" | "APPROVED" | "REJECTED";

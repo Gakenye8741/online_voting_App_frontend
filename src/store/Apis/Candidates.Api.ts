@@ -4,6 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 // -------------------- TYPES --------------------
 export interface Candidate {
   id: string;
+  student_id: string; // Added this to link with Applications API
   name: string;
   manifesto: string;
   position_id: string;
@@ -120,7 +121,7 @@ export const {
   useGetCandidatesBySchoolQuery,
   useGetCandidatesByPositionQuery,
   useGetCandidatesByCoalitionQuery,
-  useGetCandidatesByElectionQuery, // <-- This is your key hook
+  useGetCandidatesByElectionQuery,
   useGetCandidatesCountQuery,
   useGetCandidatesCountBySchoolQuery,
   useCreateCandidateMutation,

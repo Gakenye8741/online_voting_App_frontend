@@ -64,6 +64,47 @@ export default function CandidatesScreen() {
   else if (positionFilter) candidates = positionData?.candidates || [];
   else candidates = allCandidatesData?.candidates || [];
 
+  // --- Grouping and Priority Sorting Logic ---
+  const groupedCandidates = useMemo(() => {
+    const groups: Record<string, Candidate[]> = {};
+    
+    // 1. Group by position name
+    candidates.forEach((candidate) => {
+      const posName = positionsMap[candidate.position_id] || "Other Positions";
+      if (!groups[posName]) groups[posName] = [];
+      groups[posName].push(candidate);
+    });
+
+    // 2. Define priority weights for sorting
+    const getPriority = (name: string) => {
+      const n = name.toLowerCase();
+      if (n.includes("president") && !n.includes("vice")) return 1;
+      if (n.includes("vice president") || n.includes("deputy president")) return 2;
+      if (n.includes("secretary general") || n.includes("sec gen")) return 3;
+      if (n.includes("secretary")) return 4;
+      if (n.includes("treasurer") || n.includes("finance")) return 5;
+      if (n.includes("organizing")) return 6;
+      if (n.includes("chair")) return 7;
+      return 100; // Default for other roles
+    };
+
+    // 3. Sort groups based on priority weight
+    const sortedKeys = Object.keys(groups).sort((a, b) => {
+      const prioA = getPriority(a);
+      const prioB = getPriority(b);
+      if (prioA !== prioB) return prioA - prioB;
+      return a.localeCompare(b); // Alphabetical if priority is same
+    });
+
+    // 4. Create a sorted object to map over
+    const sortedGroups: Record<string, Candidate[]> = {};
+    sortedKeys.forEach(key => {
+      sortedGroups[key] = groups[key];
+    });
+    
+    return sortedGroups;
+  }, [candidates, positionsMap]);
+
   const getPreview = (text?: string) => 
     (!text ? "No manifesto provided." : text.length > 50 ? text.slice(0, 50) + "..." : text);
 
@@ -172,41 +213,55 @@ export default function CandidatesScreen() {
         {isLoadingAll && !refreshing ? (
           <ActivityIndicator size="large" color="#c8102e" style={{ marginTop: 50 }} />
         ) : (
-          <View style={styles.gridContainer}>
-            {candidates.map((candidate, index) => (
-              <Animatable.View 
-                key={candidate.id} 
-                animation="fadeInUp" 
-                delay={index * 50} 
-                style={[styles.candidateCard, { width: cardWidth }]}
-              >
-                <View style={styles.cardPositionBadge}>
-                   <Text style={styles.cardPositionText} numberOfLines={1}>
-                     {positionsMap[candidate.position_id] || "Candidate"}
-                   </Text>
-                </View>
-
-                {candidate.photo_url ? (
-                  <Image source={{ uri: candidate.photo_url }} style={styles.candidateImage} />
-                ) : (
-                  <View style={styles.initialsPlaceholder}>
-                    <Text style={styles.initialsText}>{getInitials(candidate.name)}</Text>
+          <View>
+            {Object.entries(groupedCandidates).map(([positionName, list]) => (
+              <View key={positionName} style={styles.sectionWrapper}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionHeaderText}>{positionName}</Text>
+                  <View style={styles.sectionHeaderLine} />
+                  <View style={styles.countBadge}>
+                    <Text style={styles.countText}>{list.length}</Text>
                   </View>
-                )}
-
-                <View style={styles.cardInfo}>
-                  <Text style={styles.candidateName} numberOfLines={1}>{candidate.name}</Text>
-                  <Text style={styles.candidateSchool} numberOfLines={1}>🎓 {candidate.school}</Text>
-                  <Text style={styles.candidateManifestoPreview}>{getPreview(candidate.manifesto || candidate.bio)}</Text>
                 </View>
+                
+                <View style={styles.gridContainer}>
+                  {list.map((candidate, index) => (
+                    <Animatable.View 
+                      key={candidate.id} 
+                      animation="fadeInUp" 
+                      delay={index * 50} 
+                      style={[styles.candidateCard, { width: cardWidth }]}
+                    >
+                      <View style={styles.cardPositionBadge}>
+                         <Text style={styles.cardPositionText} numberOfLines={1}>
+                           {positionName}
+                         </Text>
+                      </View>
 
-                <TouchableOpacity 
-                  style={styles.seeMoreBtn}
-                  onPress={() => { setSelectedCandidate(candidate); setModalVisible(true); }}
-                >
-                  <Text style={styles.seeMoreText}>Profile</Text>
-                </TouchableOpacity>
-              </Animatable.View>
+                      {candidate.photo_url ? (
+                        <Image source={{ uri: candidate.photo_url }} style={styles.candidateImage} />
+                      ) : (
+                        <View style={styles.initialsPlaceholder}>
+                          <Text style={styles.initialsText}>{getInitials(candidate.name)}</Text>
+                        </View>
+                      )}
+
+                      <View style={styles.cardInfo}>
+                        <Text style={styles.candidateName} numberOfLines={1}>{candidate.name}</Text>
+                        <Text style={styles.candidateSchool} numberOfLines={1}>🎓 {candidate.school}</Text>
+                        <Text style={styles.candidateManifestoPreview}>{getPreview(candidate.manifesto || candidate.bio)}</Text>
+                      </View>
+
+                      <TouchableOpacity 
+                        style={styles.seeMoreBtn}
+                        onPress={() => { setSelectedCandidate(candidate); setModalVisible(true); }}
+                      >
+                        <Text style={styles.seeMoreText}>Profile</Text>
+                      </TouchableOpacity>
+                    </Animatable.View>
+                  ))}
+                </View>
+              </View>
             ))}
           </View>
         )}
@@ -277,8 +332,15 @@ const styles = StyleSheet.create({
   pickerContainer: { flex: 1, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1.5, borderColor: '#f0f0f0', height: 45, justifyContent: 'center' },
   resetBtn: { backgroundColor: '#c8102e', width: 45, height: 45, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   
-  gridContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  candidateCard: { backgroundColor: "#fff", borderRadius: 20, padding: 12, marginBottom: 18, alignItems: "center", borderWidth: 1, borderColor: "#eee", elevation: 6, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 8, minHeight: 260 },
+  sectionWrapper: { marginBottom: 24 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 10 },
+  sectionHeaderText: { fontSize: 14, fontWeight: '900', color: '#1a1a1a', textTransform: 'uppercase', letterSpacing: 1 },
+  sectionHeaderLine: { flex: 1, height: 1, backgroundColor: '#eee' },
+  countBadge: { backgroundColor: '#f0f0f0', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2 },
+  countText: { fontSize: 10, fontWeight: '800', color: '#666' },
+
+  gridContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', gap: 16 },
+  candidateCard: { backgroundColor: "#fff", borderRadius: 20, padding: 12, alignItems: "center", borderWidth: 1, borderColor: "#eee", elevation: 6, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 8, minHeight: 260 },
   cardPositionBadge: { position: 'absolute', top: 0, backgroundColor: '#c8102e', paddingVertical: 4, paddingHorizontal: 10, borderBottomLeftRadius: 10, borderBottomRightRadius: 10, zIndex: 1 },
   cardPositionText: { fontSize: 8, fontWeight: '900', color: '#fff', textTransform: 'uppercase' },
   candidateImage: { width: 80, height: 80, borderRadius: 40, marginTop: 15, marginBottom: 10, borderWidth: 2, borderColor: '#c8102e' },
@@ -292,7 +354,6 @@ const styles = StyleSheet.create({
   seeMoreBtn: { backgroundColor: '#c8102e', paddingVertical: 8, paddingHorizontal: 20, borderRadius: 12 },
   seeMoreText: { color: '#fff', fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
 
-  // Modal Styles
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.75)", justifyContent: "center", alignItems: 'center', padding: 20 },
   modalContent: { backgroundColor: "#fff", borderRadius: 30, padding: 20, width: '100%', maxHeight: "90%", elevation: 20 },
   modalCloseIcon: { alignSelf: 'flex-end', marginBottom: -10, zIndex: 10 },
