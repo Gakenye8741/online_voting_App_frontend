@@ -11,9 +11,10 @@ import {
   Platform,
   StatusBar,
   Alert,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { useNavigation } from "@react-navigation/native";
@@ -23,8 +24,16 @@ import { useGetPositionByIdQuery } from "@/src/store/Apis/Positions.Api";
 import { useGetElectionByIdQuery } from "@/src/store/Apis/Election.Api";
 import { useGetUserByIdQuery } from "@/src/store/Apis/User.Api";
 
+// --- IMPORT COALITION API ---
+import { 
+  useCreateCoalitionMutation, 
+  useJoinCoalitionMutation, 
+  useGetCoalitionsByElectionQuery 
+} from "@/src/store/Apis/Coalition.Api";
+
 const UNIVERSITY_RED = "#D32F2F";
 const UNIVERSITY_WHITE = "#FFFFFF";
+const DARK_NAVY = "#1A237E";
 
 const STATUS_COLOR = {
   PENDING: "#FFA500",
@@ -37,7 +46,12 @@ export default function ApplicationProgress() {
   const navigation = useNavigation();
   const [refreshing, setRefreshing] = useState(false);
   
-  // Toast Animation State
+  // Coalition UI State
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [coalitionName, setCoalitionName] = useState("");
+  const [coalitionAcronym, setCoalitionAcronym] = useState("");
+  const [coalitionSlogan, setCoalitionSlogan] = useState("");
+
   const toastY = useRef(new Animated.Value(-100)).current;
   const toastOpacity = useRef(new Animated.Value(0)).current;
 
@@ -63,6 +77,13 @@ export default function ApplicationProgress() {
     { skip: !application?.election_id }
   );
 
+  // ------------------- COALITION API HOOKS -------------------
+  const [createCoalition, { isLoading: isCreatingCoalition }] = useCreateCoalitionMutation();
+  const [joinCoalition, { isLoading: isJoiningCoalition }] = useJoinCoalitionMutation();
+  const { data: electionCoalitions } = useGetCoalitionsByElectionQuery(application?.election_id ?? "", {
+    skip: !application?.election_id || application?.overall_status !== "APPROVED"
+  });
+
   // ------------------- APPROVERS -------------------
   const { data: deanUser } = useGetUserByIdQuery(application?.school_dean_id ?? "", {
     skip: !application?.school_dean_id,
@@ -77,6 +98,47 @@ export default function ApplicationProgress() {
   const deanName = deanUser?.user?.name ?? application?.school_dean_id ?? "Pending";
   const accountsName = accountsUser?.user?.name ?? application?.accounts_officer_id ?? "Pending";
   const dosName = dosUser?.user?.name ?? application?.dean_of_students_id ?? "Pending";
+
+  // ------------------- COALITION HANDLERS -------------------
+  const isPresident = positionData?.position?.name?.toLowerCase().includes("president") && 
+                     !positionData?.position?.name?.toLowerCase().includes("vice");
+
+  const handleCreateCoalitionSubmit = async () => {
+    if (!coalitionName || !coalitionAcronym) {
+      Alert.alert("Error", "Please fill in the Coalition Name and Acronym");
+      return;
+    }
+    try {
+      await createCoalition({
+        creatorCandidateId: application.id,
+        coalition: {
+          election_id: application.election_id,
+          name: coalitionName,
+          acronym: coalitionAcronym,
+          slogan: coalitionSlogan,
+          color_code: UNIVERSITY_RED
+        }
+      }).unwrap();
+      Alert.alert("Success", "Coalition Created Successfully!");
+      setShowCreateForm(false);
+      refetch();
+    } catch (err: any) {
+      Alert.alert("Error", err.data?.message || "Failed to create coalition");
+    }
+  };
+
+  const handleJoinSubmit = async (coalitionId: string) => {
+    try {
+      await joinCoalition({
+        candidate_id: application.id,
+        coalition_id: coalitionId
+      }).unwrap();
+      Alert.alert("Success", "Successfully joined the coalition!");
+      refetch();
+    } catch (err: any) {
+      Alert.alert("Error", err.data?.message || "Failed to join coalition");
+    }
+  };
 
   // ------------------- Toast Logic -------------------
   const showToast = () => {
@@ -186,8 +248,7 @@ export default function ApplicationProgress() {
       comment: application.school_dean_comment,
       approverName: deanName,
       role: "School Dean",
-      description:
-        "The School Dean reviews your application to ensure it meets academic standards and eligibility requirements.",
+      description: "The School Dean reviews your application to ensure it meets academic standards.",
     },
     {
       label: "Accounts Officer Approval",
@@ -195,8 +256,7 @@ export default function ApplicationProgress() {
       comment: application.accounts_comment,
       approverName: accountsName,
       role: "Accounts Officer",
-      description:
-        "The Accounts Officer checks your financial status to confirm all fees are cleared for eligibility.",
+      description: "The Accounts Officer checks your financial status for eligibility.",
     },
     {
       label: "Dean of Students Approval",
@@ -204,8 +264,7 @@ export default function ApplicationProgress() {
       comment: application.dean_of_students_comment,
       approverName: dosName,
       role: "Dean of Students",
-      description:
-        "The Dean of Students verifies your conduct record and ensures compliance with student leadership guidelines.",
+      description: "Conduct record and compliance verification.",
     },
     {
       label: "Final Approval",
@@ -213,8 +272,7 @@ export default function ApplicationProgress() {
       comment: "",
       approverName: "System",
       role: "Overall Status",
-      description:
-        "The system aggregates all approvals to determine if you qualify as a candidate.",
+      description: "Aggregated results of all approval stages.",
     },
   ];
 
@@ -252,60 +310,87 @@ export default function ApplicationProgress() {
         <View style={styles.descriptionCard}>
           <Text style={styles.descriptionText}>
             This page shows the current progress of your application. You can track each approval
-            stage, view your manifesto, and see the overall status of your submission.
+            stage, view your manifesto, and manage your coalition.
           </Text>
         </View>
+
+        {/* --- COALITION MANAGEMENT SECTION --- */}
+        {overallStatus === "APPROVED" && (
+          <View style={styles.coalitionSection}>
+            <View style={styles.sectionHeader}>
+              <MaterialCommunityIcons name="handshake" size={24} color={DARK_NAVY} />
+              <Text style={styles.sectionTitle}>Coalition Hub</Text>
+            </View>
+
+            {application.coalition_id ? (
+              <View style={styles.joinedCoalitionBox}>
+                <Text style={styles.joinedLabel}>YOU ARE A MEMBER OF:</Text>
+                <Text style={styles.joinedName}>{application.coalition_name || "Official Slate"}</Text>
+                <Text style={styles.joinedSub}>Your candidacy is now part of an alliance.</Text>
+              </View>
+            ) : isPresident ? (
+              <View>
+                {!showCreateForm ? (
+                  <TouchableOpacity style={styles.primaryActionBtn} onPress={() => setShowCreateForm(true)}>
+                    <LinearGradient colors={[DARK_NAVY, "#3949AB"]} style={styles.btnGradient}>
+                      <Ionicons name="add-circle-outline" size={20} color="#fff" style={{marginRight: 8}} />
+                      <Text style={styles.btnText}>CREATE COALITION</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.createForm}>
+                    <Text style={styles.formTitle}>New Coalition Details</Text>
+                    <TextInput style={styles.input} placeholder="Coalition Name (e.g. Progressive Alliance)" value={coalitionName} onChangeText={setCoalitionName} />
+                    <TextInput style={styles.input} placeholder="Acronym (e.g. TPA)" value={coalitionAcronym} onChangeText={setCoalitionAcronym} maxLength={5} />
+                    <TextInput style={styles.input} placeholder="Slogan" value={coalitionSlogan} onChangeText={setCoalitionSlogan} />
+                    <View style={styles.formButtons}>
+                       <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowCreateForm(false)}>
+                          <Text style={{color: '#666', fontWeight: 'bold'}}>Cancel</Text>
+                       </TouchableOpacity>
+                       <TouchableOpacity style={styles.submitBtn} onPress={handleCreateCoalitionSubmit}>
+                          {isCreatingCoalition ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{color: '#fff', fontWeight: 'bold'}}>Create</Text>}
+                       </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </View>
+            ) : (
+              <View>
+                <Text style={styles.promptText}>Join an existing coalition to run as part of a team.</Text>
+                {electionCoalitions?.coalitions?.length === 0 ? (
+                  <Text style={styles.noData}>No coalitions formed yet.</Text>
+                ) : (
+                  electionCoalitions?.coalitions?.map((c: any) => (
+                    <TouchableOpacity key={c.id} style={styles.coalitionJoinItem} onPress={() => handleJoinSubmit(c.id)}>
+                      <View>
+                        <Text style={styles.cName}>{c.name} ({c.acronym})</Text>
+                        <Text style={styles.cSlogan}>{c.slogan}</Text>
+                      </View>
+                      {isJoiningCoalition ? <ActivityIndicator color={UNIVERSITY_RED} /> : <Ionicons name="chevron-forward" size={20} color={UNIVERSITY_RED} />}
+                    </TouchableOpacity>
+                  ))
+                )}
+              </View>
+            )}
+          </View>
+        )}
 
         {/* APPLICATION INFO */}
         <View style={styles.infoCard}>
           <View style={styles.infoRow}>
             <View style={styles.infoColumn}>
-              <Text style={styles.infoLabel}>Application ID:</Text>
-              <Text style={styles.infoValue}>{application.id}</Text>
-              <Text style={{ fontSize: 12, color: "#666" }}>
-                Unique identifier for your application submission.
-              </Text>
-            </View>
-            <View style={styles.infoColumn}>
               <Text style={styles.infoLabel}>Position:</Text>
               <Text style={styles.infoValue}>{positionName}</Text>
-              <Text style={{ fontSize: 12, color: "#666" }}>
-                The student leadership position you have applied for.
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.infoRow}>
-            <View style={styles.infoColumn}>
-              <Text style={styles.infoLabel}>Election:</Text>
-              <Text style={styles.infoValue}>{electionName}</Text>
-              <Text style={{ fontSize: 12, color: "#666" }}>
-                Name of the election in which you are participating.
-              </Text>
-            </View>
-            <View style={styles.infoColumn}>
-              <Text style={styles.infoLabel}>Election Period:</Text>
-              <Text style={styles.infoValue}>{electionPeriod}</Text>
-              <Text style={{ fontSize: 12, color: "#666" }}>
-                The official dates when the election takes place.
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.infoRow}>
-            <View style={styles.infoColumn}>
-              <Text style={styles.infoLabel}>School:</Text>
-              <Text style={styles.infoValue}>{application.school}</Text>
-              <Text style={{ fontSize: 12, color: "#666" }}>
-                The school or faculty you belong to.
-              </Text>
             </View>
             <View style={styles.infoColumn}>
               <Text style={styles.infoLabel}>Submitted At:</Text>
               <Text style={styles.infoValue}>{submittedAt}</Text>
-              <Text style={{ fontSize: 12, color: "#666" }}>
-                Date when your application was submitted for processing.
-              </Text>
+            </View>
+          </View>
+          <View style={styles.infoRow}>
+            <View style={styles.infoColumn}>
+              <Text style={styles.infoLabel}>Election Period:</Text>
+              <Text style={styles.infoValue}>{electionPeriod}</Text>
             </View>
           </View>
         </View>
@@ -314,54 +399,33 @@ export default function ApplicationProgress() {
         <View style={styles.manifestoCard}>
           <Text style={styles.manifestoLabel}>Your Manifesto</Text>
           <Text style={styles.manifestoText}>{application.manifesto}</Text>
-          <Text style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
-            This is your statement outlining your goals, plans, and commitments if elected.
-          </Text>
         </View>
 
         {/* OVERALL STATUS */}
         <View style={styles.statusContainer}>
           <Text style={styles.statusLabel}>Overall Status:</Text>
-          <Text
-            style={[
-              styles.statusValue,
-              { color: STATUS_COLOR[overallStatus as keyof typeof STATUS_COLOR] },
-            ]}
-          >
+          <Text style={[styles.statusValue, { color: STATUS_COLOR[overallStatus as keyof typeof STATUS_COLOR] }]}>
             {overallStatus}
           </Text>
-
           {overallStatus === "APPROVED" && (
-            <Text style={styles.successMessage}>
-              🎉 Congratulations! You have qualified to be a candidate.
-            </Text>
-          )}
-          {overallStatus === "REJECTED" && (
-            <Text style={styles.failureMessage}>❌ Unfortunately, you did not qualify.</Text>
+            <Text style={styles.successMessage}>🎉 Congratulations! You have qualified as a candidate.</Text>
           )}
         </View>
 
         {/* APPROVAL TIMELINE */}
         <View style={styles.timelineContainer}>
           {steps.map((step, idx) => {
-            const color =
-              STATUS_COLOR[step.status as keyof typeof STATUS_COLOR] ?? STATUS_COLOR.DEFAULT;
-
+            const color = STATUS_COLOR[step.status as keyof typeof STATUS_COLOR] ?? STATUS_COLOR.DEFAULT;
             return (
               <View key={idx} style={styles.stepWrapper}>
                 {idx !== 0 && <View style={styles.verticalLine} />}
                 <View style={[styles.stepCard, { borderLeftColor: color, borderLeftWidth: 4 }]}>
                   <View style={styles.stepHeader}>
                     <View style={[styles.statusCircle, { backgroundColor: color }]} />
-                    <Text style={styles.stepLabel}>
-                      {step.label} ({step.role})
-                    </Text>
+                    <Text style={styles.stepLabel}>{step.label} ({step.role})</Text>
                   </View>
-
                   <Text style={styles.stepStatus}>Status: {step.status ?? "PENDING"}</Text>
                   <Text style={styles.approverId}>Approver: {step.approverName}</Text>
-                  <Text style={styles.stepDescription}>{step.description}</Text>
-
                   {step.comment && <Text style={styles.stepComment}>💬 {step.comment}</Text>}
                 </View>
               </View>
@@ -370,18 +434,10 @@ export default function ApplicationProgress() {
         </View>
 
         {/* WITHDRAW BUTTON */}
-        <TouchableOpacity 
-          style={[styles.withdrawBtn, isDeleting && { opacity: 0.7 }]} 
-          onPress={handleCancelApplication}
-          disabled={isDeleting}
-        >
-          {isDeleting ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <>
-              <Ionicons name="trash-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
-              <Text style={styles.withdrawBtnText}>Withdraw Application</Text>
-            </>
+        <TouchableOpacity style={[styles.withdrawBtn, isDeleting && { opacity: 0.7 }]} onPress={handleCancelApplication} disabled={isDeleting}>
+          {isDeleting ? <ActivityIndicator color="#fff" size="small" /> : (
+            <><Ionicons name="trash-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+              <Text style={styles.withdrawBtnText}>Withdraw Application</Text></>
           )}
         </TouchableOpacity>
 
@@ -399,53 +455,61 @@ const styles = StyleSheet.create({
   container: { padding: 16, paddingBottom: 40 },
   header: { fontSize: 26, fontWeight: "bold", color: UNIVERSITY_RED, textAlign: "center", marginBottom: 20 },
   
+  // --- COALITION STYLES ---
+  coalitionSection: { backgroundColor: '#F8F9FE', borderRadius: 15, padding: 20, marginBottom: 20, borderWidth: 1, borderColor: '#E0E5F2' },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
+  sectionTitle: { fontSize: 18, fontWeight: '800', color: DARK_NAVY, marginLeft: 10 },
+  joinedCoalitionBox: { backgroundColor: DARK_NAVY, padding: 20, borderRadius: 12 },
+  joinedLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 10, fontWeight: '900', letterSpacing: 1 },
+  joinedName: { color: '#fff', fontSize: 22, fontWeight: '900', marginVertical: 4 },
+  joinedSub: { color: 'rgba(255,255,255,0.6)', fontSize: 12 },
+  primaryActionBtn: { borderRadius: 12, overflow: 'hidden' },
+  btnGradient: { padding: 15, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+  btnText: { color: '#fff', fontWeight: '900', fontSize: 15 },
+  promptText: { fontSize: 13, color: '#666', marginBottom: 15 },
+  coalitionJoinItem: { backgroundColor: '#fff', padding: 15, borderRadius: 10, marginBottom: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#EEE' },
+  cName: { fontWeight: '800', fontSize: 15, color: DARK_NAVY },
+  cSlogan: { fontSize: 12, color: '#888', fontStyle: 'italic' },
+  createForm: { backgroundColor: '#fff', padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#DDD' },
+  formTitle: { fontWeight: '800', marginBottom: 10, color: DARK_NAVY },
+  input: { borderBottomWidth: 1, borderBottomColor: '#DDD', paddingVertical: 8, marginBottom: 15, fontSize: 14 },
+  formButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
+  cancelBtn: { padding: 10 },
+  submitBtn: { backgroundColor: DARK_NAVY, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
+  noData: { textAlign: 'center', color: '#AAA', fontStyle: 'italic' },
+
   toastContainer: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 99999, alignItems: 'center' },
   toastContent: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 25, gap: 8, elevation: 10, shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 5 },
   toastText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-
-  infoCard: { backgroundColor: UNIVERSITY_WHITE, padding: 16, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: UNIVERSITY_RED, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  infoCard: { backgroundColor: UNIVERSITY_WHITE, padding: 16, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: UNIVERSITY_RED, elevation: 2 },
   infoRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12 },
   infoColumn: { flex: 1, marginRight: 8 },
-  infoLabel: { fontWeight: "600", fontSize: 16, marginBottom: 4 },
-  infoValue: { fontSize: 16, color: "#333" },
-  manifestoCard: { backgroundColor: UNIVERSITY_WHITE, padding: 16, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: UNIVERSITY_RED, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  infoLabel: { fontWeight: "600", fontSize: 14, color: '#666' },
+  infoValue: { fontSize: 15, color: "#333", fontWeight: '700' },
+  manifestoCard: { backgroundColor: UNIVERSITY_WHITE, padding: 16, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: UNIVERSITY_RED },
   manifestoLabel: { fontSize: 16, fontWeight: "600", marginBottom: 8 },
   manifestoText: { fontSize: 14, color: "#333" },
-  statusContainer: { marginBottom: 20, padding: 16, backgroundColor: UNIVERSITY_WHITE, borderRadius: 12, borderWidth: 1, borderColor: UNIVERSITY_RED, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  statusContainer: { marginBottom: 20, padding: 16, backgroundColor: UNIVERSITY_WHITE, borderRadius: 12, borderWidth: 1, borderColor: UNIVERSITY_RED },
   statusLabel: { fontSize: 18, fontWeight: "600", marginBottom: 6 },
   statusValue: { fontSize: 18, fontWeight: "bold" },
-  successMessage: { marginTop: 8, fontSize: 16, fontWeight: "600", color: "green" },
-  failureMessage: { marginTop: 8, fontSize: 16, fontWeight: "600", color: "red" },
+  successMessage: { marginTop: 8, fontSize: 14, fontWeight: "600", color: "green" },
   timelineContainer: { marginTop: 16 },
   stepWrapper: { position: "relative", paddingLeft: 20, marginBottom: 20 },
   verticalLine: { position: "absolute", left: 9, top: -20, width: 2, height: "100%", backgroundColor: UNIVERSITY_RED, opacity: 0.2 },
-  stepCard: { backgroundColor: UNIVERSITY_WHITE, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: UNIVERSITY_RED, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  stepCard: { backgroundColor: UNIVERSITY_WHITE, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: UNIVERSITY_RED },
   stepHeader: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
-  stepLabel: { fontSize: 16, fontWeight: "600" },
-  statusCircle: { width: 14, height: 14, borderRadius: 7, marginRight: 8 },
+  stepLabel: { fontSize: 15, fontWeight: "600" },
+  statusCircle: { width: 12, height: 12, borderRadius: 6, marginRight: 8 },
   stepStatus: { fontSize: 14, fontWeight: "bold", marginBottom: 4 },
-  approverId: { fontSize: 14, fontStyle: "italic", color: "#555" },
-  stepComment: { marginTop: 4, fontSize: 13, fontStyle: "italic", color: "#555" },
-  stepDescription: { marginTop: 4, fontSize: 13, color: "#333" },
+  approverId: { fontSize: 12, fontStyle: "italic", color: "#555" },
+  stepComment: { marginTop: 4, fontSize: 12, fontStyle: "italic", color: "#555" },
   centered: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 20 },
-  noAppText: { fontSize: 18, color: "#888", textAlign: "center" },
+  noAppText: { fontSize: 16, color: "#888", textAlign: "center" },
   loadingText: { marginTop: 8, fontSize: 16 },
   errorText: { fontSize: 18, color: "red", textAlign: 'center' },
   errorBackBtn: { marginTop: 15, padding: 10, borderWidth: 1, borderColor: UNIVERSITY_RED, borderRadius: 8 },
-  descriptionCard: {
-    backgroundColor: "#F9F9F9",
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: UNIVERSITY_RED,
-  },
-  descriptionText: {
-    fontSize: 14,
-    color: UNIVERSITY_RED,
-    lineHeight: 20,
-    textAlign: "center",
-  },
+  descriptionCard: { backgroundColor: "#F9F9F9", padding: 12, borderRadius: 10, marginBottom: 16, borderWidth: 1, borderColor: UNIVERSITY_RED },
+  descriptionText: { fontSize: 14, color: UNIVERSITY_RED, textAlign: "center" },
   withdrawBtn: { backgroundColor: UNIVERSITY_RED, padding: 16, borderRadius: 12, alignItems: "center", marginTop: 10, flexDirection: 'row', justifyContent: 'center' },
   withdrawBtnText: { color: "#fff", fontWeight: "800", fontSize: 16, textTransform: "uppercase" },
 });
