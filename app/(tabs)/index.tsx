@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -11,13 +11,14 @@ import {
   TextInput,
   FlatList,
   Modal,
-  Pressable,
   Animated,
   Easing,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Animatable from "react-native-animatable";
+import { Ionicons } from "@expo/vector-icons"; 
+import { useRouter } from "expo-router"; 
 
 import {
   useGetAllElectionsQuery,
@@ -32,11 +33,61 @@ import {
   Candidate,
 } from "@/src/store/Apis/Candidates.Api";
 
+// --- QUICK STATS COMPONENT ---
+const QuickStats = ({ candidateCount, positionCount, daysLeft }: { candidateCount: number, positionCount: number, daysLeft: number }) => {
+  const stats = [
+    { label: "Candidates", value: candidateCount, icon: "people-circle" },
+    { label: "Positions", value: positionCount, icon: "list" },
+    { label: "Days Left", value: daysLeft > 0 ? daysLeft : 0, icon: "time" },
+  ];
+
+  return (
+    <View style={styles.statsRow}>
+      {stats.map((stat, i) => (
+        <Animatable.View key={i} animation="zoomIn" delay={i * 100} style={styles.statCard}>
+          <View style={styles.statIconBg}>
+            <Ionicons name={stat.icon as any} size={18} color="#c8102e" />
+          </View>
+          <Text style={styles.statValue}>{stat.value}</Text>
+          <Text style={styles.statLabel}>{stat.label}</Text>
+        </Animatable.View>
+      ))}
+    </View>
+  );
+};
+
+// --- FAQ COMPONENT ---
+const ElectionFAQ = () => {
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const faqs = [
+    { q: "How do I cast my vote online?", a: "Navigate to the 'Vote' tab, choose your candidates for each available seat, and click 'Cast Vote'. Your choice is then encrypted and sent to the blockchain." },
+    { q: "Is my vote truly anonymous?", a: "Yes. Using blockchain technology, your identity is verified but your specific vote is decoupled from your personal details to ensure total privacy." },
+    { q: "Can I change my vote later?", a: "No. To maintain election integrity, once a vote is recorded on the blockchain, it cannot be altered or deleted." }
+  ];
+
+  return (
+    <View style={styles.faqSection}>
+      <Text style={styles.sectionTitle}>Help & Support</Text>
+      {faqs.map((faq, i) => (
+        <TouchableOpacity key={i} style={styles.faqItem} activeOpacity={0.7} onPress={() => setExpanded(expanded === i ? null : i)}>
+          <View style={styles.faqHeader}>
+            <Text style={styles.faqQuestion}>{faq.q}</Text>
+            <Ionicons name={expanded === i ? "chevron-up" : "chevron-down"} size={16} color="#c8102e" />
+          </View>
+          {expanded === i && (
+            <Animatable.Text animation="fadeIn" style={styles.faqAnswer}>{faq.a}</Animatable.Text>
+          )}
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+};
+
 // --- News & Announcements Component ---
 const Announcements = () => {
   const news = [
-    "📢 OFFICIAL: Election venue is the University Business Center (UBC).",
-    "🗳️ Reminder: Carry your student ID for verification at the polling station.",
+    "🗳️ Online voting is officially open! Cast your vote from anywhere. 🛡️ Blockchain Security: All votes are being recorded on the Sepolia Testnet.",
+    "",
   ];
 
   const scrollX = useRef(new Animated.Value(0)).current;
@@ -59,24 +110,16 @@ const Announcements = () => {
 
   return (
     <View style={styles.newsSection}>
-      <Text style={styles.sectionTitle}>Latest Updates</Text>
+      <Text style={styles.sectionTitle}>Important Notices</Text>
       <View style={styles.tickerContainer} onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}>
         <View style={styles.tickerBadge}>
-          <Text style={styles.tickerBadgeText}>URGENT</Text>
+          <Text style={styles.tickerBadgeText}>LIVE</Text>
         </View>
         <Animated.View style={[styles.tickerWrapper, { transform: [{ translateX: scrollX }] }]}>
           <Text style={styles.tickerText} onLayout={(e) => setTextWidth(e.nativeEvent.layout.width)}>
             {news.join("      •      ")}
           </Text>
         </Animated.View>
-      </View>
-      <View style={styles.newsFeed}>
-        {news.map((item, index) => (
-          <View key={index} style={styles.newsItem}>
-            <View style={styles.newsDot} />
-            <Text style={styles.newsItemText}>{item}</Text>
-          </View>
-        ))}
       </View>
     </View>
   );
@@ -87,17 +130,15 @@ const ParticipationTracker = ({ totalVotes, totalVoters }: { totalVotes: number;
   const percentage = totalVoters > 0 ? (totalVotes / totalVoters) * 100 : 0;
   return (
     <View style={styles.trackerContainer}>
-      {/* FIXED: Changed <div> to <View> */}
       <View style={styles.trackerTextRow}>
-        <Text style={styles.trackerLabel}>Voter Participation</Text>
+        <Text style={styles.trackerLabel}>Real-time Turnout</Text>
         <Text style={styles.trackerPercent}>{percentage.toFixed(1)}%</Text>
       </View>
       <View style={styles.progressBackground}>
-        {/* FIXED: Changed "stretchX" to "fadeInLeft" as stretchX isn't a valid built-in animation */}
         <Animatable.View 
           animation="fadeInLeft" 
           duration={1500}
-          useNativeDriver
+          useNativeDriver={false}
           style={[styles.progressFill, { width: `${percentage}%` }]} 
         />
       </View>
@@ -113,13 +154,17 @@ const ElectionRoadmap = ({ status }: { status: string }) => {
 
   return (
     <View style={styles.roadmapContainer}>
-      <Text style={styles.roadmapTitle}>Election Journey</Text>
+      <Text style={styles.roadmapTitle}>Election Progress</Text>
       <View style={styles.roadmapRow}>
         {phases.map((phase, index) => (
           <React.Fragment key={phase}>
             <View style={styles.stepWrapper}>
               <View style={[styles.stepCircle, index <= currentIdx && styles.activeStepCircle]}>
-                <Text style={[styles.stepNumber, index <= currentIdx && styles.activeStepNumber]}>{index + 1}</Text>
+                {index < currentIdx ? (
+                   <Ionicons name="checkmark" size={14} color="#fff" />
+                ) : (
+                   <Text style={[styles.stepNumber, index <= currentIdx && styles.activeStepNumber]}>{index + 1}</Text>
+                )}
               </View>
               <Text style={[styles.stepLabel, index === currentIdx && styles.activeStepLabel]}>{phase}</Text>
             </View>
@@ -157,15 +202,32 @@ const CountdownTimer = ({ targetDate, label }: { targetDate: string; label: stri
 
   if (isPast) return null;
 
-  return (
-    <View style={styles.countdownBox}>
-      <Text style={styles.countdownLabel}>{label}</Text>
-      <View style={styles.timerRow}>
-        <Text style={styles.timerText}>{timeLeft.days}d : {timeLeft.hours}h : {timeLeft.mins}m : {timeLeft.secs}s</Text>
+  // Helper to render each time unit
+  const TimeUnit = ({ value, label }: { value: number; label: string }) => (
+    <View style={styles.timeUnitContainer}>
+      <View style={styles.timeCard}>
+        <Text style={styles.timeValue}>{value.toString().padStart(2, '0')}</Text>
       </View>
+      <Text style={styles.timeLabel}>{label}</Text>
     </View>
   );
+
+  return (
+    <Animatable.View animation="fadeIn" duration={800} style={styles.countdownContainer}>
+      <Text style={styles.countdownHeader}>{label}</Text>
+      <View style={styles.timerRow}>
+        <TimeUnit value={timeLeft.days} label="Days" />
+        <Text style={styles.separator}>:</Text>
+        <TimeUnit value={timeLeft.hours} label="Hrs" />
+        <Text style={styles.separator}>:</Text>
+        <TimeUnit value={timeLeft.mins} label="Min" />
+        <Text style={styles.separator}>:</Text>
+        <TimeUnit value={timeLeft.secs} label="Sec" />
+      </View>
+    </Animatable.View>
+  );
 };
+
 
 interface User {
   name: string;
@@ -180,6 +242,7 @@ interface Position {
 }
 
 export default function Home() {
+  const router = useRouter(); 
   const [user, setUser] = useState<User | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
@@ -247,15 +310,20 @@ export default function Home() {
   const roadmapStatus = latestElection?.status ?? "upcoming";
 
   const { data: allCandidatesData, isLoading: isLoadingAll } = useGetCandidatesByElectionQuery(latestElectionId, { skip: !latestElectionId });
-  const { data: searchData } = useGetCandidatesByNameQuery(search, { skip: !search });
-  const { data: positionData } = useGetCandidatesByPositionQuery(positionFilter || "", { skip: !positionFilter });
-  const { data: schoolData } = useGetCandidatesBySchoolQuery(schoolFilter || "", { skip: !schoolFilter });
-
-  let candidates: Candidate[] = [];
-  if (search) candidates = searchData?.candidates || [];
-  else if (positionFilter) candidates = positionData?.candidates || [];
-  else if (schoolFilter) candidates = schoolData?.candidates || [];
-  else candidates = allCandidatesData?.candidates || [];
+  
+  const candidates = useMemo(() => {
+    let list = allCandidatesData?.candidates || [];
+    if (search) {
+      list = list.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
+    }
+    if (positionFilter) {
+      list = list.filter(c => positionsMap[c.position_id]?.toLowerCase().includes(positionFilter.toLowerCase()));
+    }
+    if (schoolFilter) {
+      list = list.filter(c => (c as any).school?.toLowerCase().includes(schoolFilter.toLowerCase()));
+    }
+    return list;
+  }, [allCandidatesData, search, positionFilter, schoolFilter, positionsMap]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -267,178 +335,330 @@ export default function Home() {
     return words.length >= 2 ? `${words[0][0]}${words[1][0]}` : name.substring(0, 2);
   };
 
+  const getDaysDiff = (date: string) => {
+    const diff = new Date(date).getTime() - new Date().getTime();
+    return Math.ceil(diff / (1000 * 60 * 60 * 24));
+  };
+
+  const handleVisitCandidate = (id: string) => {
+    setModalVisible(false);
+    router.push(`/Candidate/${id}` as any);
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
+      <View style={styles.topHeader}>
+        <Animatable.View animation="fadeInLeft" style={styles.headerLeft}>
+          <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.logo} />
+          <View>
+            <Text style={styles.greetingText}>{getGreeting()},</Text>
+            <Text style={styles.userNameText}>{user?.name || "User"}</Text>
+          </View>
+        </Animatable.View>
+        <TouchableOpacity 
+          style={styles.notifBell} 
+          onPress={() => router.push("/more/notifications" as any)}
+        >
+          <Ionicons name="notifications-outline" size={26} color="#c8102e" />
+          <View style={styles.bellDot} />
+        </TouchableOpacity>
+      </View>
+
       <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.container}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#c8102e"]} />}
       >
-        <Animatable.View animation="fadeInDown" duration={1200} style={styles.header}>
-          <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.logo} />
-          <View style={styles.greetingContainer}>
-            <Text style={styles.greetingText}>{getGreeting()}, {user?.name || "User"}!</Text>
-            <Text style={styles.schoolText}>School: {user?.school || "-"}</Text>
-            <Text style={styles.roleText}>Role: {user?.role || "-"}</Text>
-          </View>
+        {/* --- ELECTION MOTTO --- */}
+        <Animatable.View animation="fadeIn" duration={1000} style={styles.mottoSection}>
+            <Text style={styles.mottoText}>Empowering Students Through Transparent Tech.</Text>
         </Animatable.View>
 
-        <Animatable.Text animation="fadeInDown" duration={1200} delay={200} style={styles.quote}>
-          “Your vote is your voice – make it count!”
-        </Animatable.Text>
+        <View style={styles.statsStrip}>
+           <Text style={styles.schoolTag}><Ionicons name="school" size={12}/> {user?.school || "-"}</Text>
+           <Text style={styles.roleTag}><Ionicons name="ribbon" size={12}/> {user?.role || "-"}</Text>
+        </View>
 
-        <Animatable.View animation="fadeInUp" duration={1200} delay={400} style={styles.electionCard}>
-          <Text style={styles.cardTitle}>{latestElection?.name || "No election available"}</Text>
+        <QuickStats 
+           candidateCount={allCandidatesData?.candidates?.length || 0} 
+           positionCount={Object.keys(positionsMap).length}
+           daysLeft={latestElection ? getDaysDiff(latestElection.start_date) : 0}
+        />
+
+        <Animatable.View animation="fadeInUp" duration={1000} style={styles.electionCard}>
+          <View style={styles.cardHeader}>
+             <Text style={styles.cardTitle}>{latestElection?.name || "No election available"}</Text>
+             {latestElection?.status === 'ongoing' && (
+                <View style={styles.liveBadge}><Text style={styles.liveBadgeText}>LIVE</Text></View>
+             )}
+          </View>
+          
           {isLoadingElections ? (
             <ActivityIndicator size="small" color="#c8102e" />
-          ) : electionsError ? (
-            <Text style={styles.cardText}>Failed to load election</Text>
           ) : latestElection ? (
             <>
               {new Date(latestElection.start_date).getTime() > new Date().getTime() ? (
-                <CountdownTimer targetDate={latestElection.start_date} label="Election Starts In:" />
+                <CountdownTimer targetDate={latestElection.start_date} label="Polls Open In:" />
               ) : new Date(latestElection.end_date).getTime() > new Date().getTime() ? (
-                <CountdownTimer targetDate={latestElection.end_date} label="Election Ends In:" />
+                <CountdownTimer targetDate={latestElection.end_date} label="Polls Close In:" />
               ) : (
-                <Text style={styles.statusEnded}>Election has Ended</Text>
+                <View style={styles.endedTag}><Text style={styles.statusEnded}>Election Closed</Text></View>
               )}
               {latestElection.status === 'ongoing' && <ParticipationTracker totalVotes={650} totalVoters={1200} />}
-              <Text style={styles.cardText}>Start: {new Date(latestElection.start_date).toLocaleString()}</Text>
-              <Text style={styles.cardText}>End: {new Date(latestElection.end_date).toLocaleString()}</Text>
-              <Text style={[styles.statusBadge, { color: latestElection.status === 'ongoing' ? '#2e7d32' : '#c8102e' }]}>
-                Status: {(latestElection.status ?? "UNKNOWN").toUpperCase()}
-              </Text>
             </>
-          ) : (
-            <Text style={styles.cardText}>No elections available</Text>
-          )}
+          ) : null}
         </Animatable.View>
 
+        {/* --- BLOCKCHAIN TRUST CARD (Replacing Polling Station) --- */}
+        <View style={styles.trustCard}>
+           <View style={styles.trustIconBg}><Ionicons name="shield-checkmark" size={24} color="#fff" /></View>
+           <View style={styles.trustTextContent}>
+              <Text style={styles.trustLabel}>Secured by Blockchain</Text>
+              <Text style={styles.trustDesc}>Your vote is immutable and transparently recorded online.</Text>
+           </View>
+        </View>
+
         {latestElection && (
-          <Animatable.View animation="fadeInUp" duration={1200} delay={500}>
+          <Animatable.View animation="fadeInUp" duration={1000} delay={100}>
             <ElectionRoadmap status={roadmapStatus} />
           </Animatable.View>
         )}
 
-        <Animatable.View animation="fadeInUp" duration={1200} delay={600}>
-          <Text style={styles.sectionTitle}>Candidates for {latestElection?.name || "this election"}</Text>
-          <View style={styles.filtersContainer}>
-            <TextInput style={styles.filterInput} placeholder="Search name..." value={search} onChangeText={setSearch} />
-            <TextInput style={styles.filterInput} placeholder="Position..." value={positionFilter || ""} onChangeText={setPositionFilter} />
-            <TextInput style={styles.filterInput} placeholder="School..." value={schoolFilter || ""} onChangeText={setSchoolFilter} />
-            <TouchableOpacity style={styles.clearButton} onPress={() => { setSearch(""); setPositionFilter(null); setSchoolFilter(null); }}>
-              <Text style={styles.clearButtonText}>Clear</Text>
+        <View style={styles.candidatesSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Featured Candidates</Text>
+            <TouchableOpacity onPress={() => router.push("/Candidate" as any)}>
+                <Text style={styles.viewAllText}>View All</Text>
             </TouchableOpacity>
+          </View>
+          
+          <View style={styles.filtersWrapper}>
+            <View style={styles.searchBar}>
+               <Ionicons name="search" size={16} color="#999" />
+               <TextInput style={styles.searchBarInput} placeholder="Quick search candidates..." value={search} onChangeText={setSearch} />
+            </View>
           </View>
 
           {isLoadingAll ? <ActivityIndicator size="large" color="#c8102e" style={{ marginTop: 20 }} /> :
-            candidates.length === 0 ? <Text style={styles.cardText}>No candidates found.</Text> :
               <FlatList
                 data={candidates}
                 keyExtractor={(item) => item.id}
                 horizontal
                 showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 10 }}
                 renderItem={({ item }) => (
-                  <Animatable.View animation="fadeInUp" style={styles.candidateCard}>
+                  <TouchableOpacity 
+                    style={styles.candidateCard}
+                    activeOpacity={0.9}
+                    onPress={() => { setSelectedCandidate(item); setModalVisible(true); }}
+                  >
                     {item.photo_url ? <Image source={{ uri: item.photo_url }} style={styles.candidatePhoto} /> :
                       <View style={styles.initialsCircle}><Text style={styles.initialsText}>{getInitials(item.name)}</Text></View>}
-                    <Text style={styles.candidateName}>{item.name}</Text>
-                    <Text style={styles.candidatePosition}>{positionsMap[item.position_id] || "Unknown"}</Text>
-                    <TouchableOpacity style={styles.detailsButton} onPress={() => { setSelectedCandidate(item); setModalVisible(true); }}>
-                      <Text style={styles.detailsButtonText}>Details</Text>
-                    </TouchableOpacity>
-                  </Animatable.View>
+                    <Text numberOfLines={1} style={styles.candidateName}>{item.name}</Text>
+                    <Text numberOfLines={1} style={styles.candidatePosition}>{positionsMap[item.position_id] || "Candidate"}</Text>
+                    <View style={styles.detailsTag}>
+                      <Text style={styles.detailsTagText}>Manifesto</Text>
+                    </View>
+                  </TouchableOpacity>
                 )}
               />}
-        </Animatable.View>
+        </View>
 
-        <Animatable.View animation="fadeInUp" duration={1200} delay={550}>
-          <Announcements />
-        </Animatable.View>
+        {/* <Announcements /> */}
+        
+        <ElectionFAQ />
 
-        <Modal visible={modalVisible} transparent animationType="slide">
+        <Modal visible={modalVisible} transparent animationType="fade">
           <View style={styles.modalOverlay}>
-            <Animatable.View animation="fadeInUp" style={styles.modalCard}>
+            <Animatable.View animation="zoomIn" duration={300} style={styles.modalCard}>
               {selectedCandidate && <>
-                <Text style={styles.modalName}>{selectedCandidate.name}</Text>
-                <Text style={styles.modalPosition}>{positionsMap[selectedCandidate.position_id] || "Unknown"}</Text>
-                <Text style={styles.modalManifesto}>{selectedCandidate.manifesto || "No manifesto provided."}</Text>
+                <View style={styles.modalHeader}>
+                   <View style={{ flex: 1 }}>
+                      <Text style={styles.modalName}>{selectedCandidate.name}</Text>
+                      <Text style={styles.modalPosition}>{positionsMap[selectedCandidate.position_id] || "Position"}</Text>
+                   </View>
+                   <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeModalBtn}>
+                      <Ionicons name="close" size={24} color="#333" />
+                   </TouchableOpacity>
+                </View>
+                <View style={styles.manifestoContainer}>
+                   <Text style={styles.manifestoTitle}>My Manifesto Preview</Text>
+                   <Text style={styles.modalManifesto} numberOfLines={4}>
+                      {selectedCandidate.manifesto || "The candidate has not provided a manifesto yet."}
+                   </Text>
+                </View>
               </>}
-              <Pressable style={styles.closeButton} onPress={() => setModalVisible(false)}>
-                <Text style={styles.closeButtonText}>✕ Close</Text>
-              </Pressable>
+              <TouchableOpacity 
+                style={styles.closeButton} 
+                onPress={() => handleVisitCandidate(selectedCandidate?.id || "")}
+              >
+                <Text style={styles.closeButtonText}>View Full Profile</Text>
+              </TouchableOpacity>
             </Animatable.View>
           </View>
         </Modal>
+        
+        <View style={styles.footerSpace} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#fff" },
+  safeArea: { flex: 1, backgroundColor: "#F9FAFB" },
+  topHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10, backgroundColor: '#fff', paddingBottom: 15 },
+  headerLeft: { flexDirection: 'row', alignItems: 'center' },
+  logo: { width: 45, height: 45, marginRight: 12, borderRadius: 12 },
+  greetingText: { fontSize: 13, color: "#888", fontWeight: '500' },
+  userNameText: { fontSize: 18, fontWeight: "800", color: "#111" },
+  notifBell: { padding: 10, backgroundColor: '#FEF2F2', borderRadius: 12 },
+  bellDot: { position: 'absolute', top: 12, right: 12, width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444', borderWidth: 2, borderColor: '#fff' },
+  
   container: { padding: 20, flexGrow: 1 },
-  header: { flexDirection: "row", alignItems: "center", marginBottom: 20 },
-  logo: { width: 60, height: 60, marginRight: 15 },
-  greetingContainer: { flex: 1 },
-  greetingText: { fontSize: 22, fontWeight: "700", color: "#c8102e" },
-  schoolText: { fontSize: 16, color: "#444" },
-  roleText: { fontSize: 16, color: "#444" },
-  quote: { fontSize: 16, fontStyle: "italic", color: "#666", marginBottom: 20 },
-  electionCard: { backgroundColor: "#fff", borderRadius: 12, padding: 20, borderWidth: 1, borderColor: "#eee", elevation: 3, marginBottom: 20 },
-  cardTitle: { fontSize: 18, fontWeight: "700", color: "#c8102e", marginBottom: 10 },
-  cardText: { fontSize: 14, color: "#555", marginBottom: 4 },
-  countdownBox: { backgroundColor: "#c8102e", borderRadius: 8, padding: 12, marginBottom: 15, alignItems: "center" },
-  countdownLabel: { color: "#fff", fontSize: 12, fontWeight: "600" },
-  timerRow: { flexDirection: "row", alignItems: "center" },
-  timerText: { color: "#fff", fontSize: 18, fontWeight: "800" },
-  statusEnded: { color: "#666", fontSize: 16, fontWeight: "700", textAlign: "center" },
-  statusBadge: { fontSize: 14, fontWeight: "700", marginTop: 5 },
-  trackerContainer: { marginVertical: 12 },
-  trackerTextRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  trackerLabel: { fontSize: 13, fontWeight: '600' },
-  trackerPercent: { fontSize: 13, fontWeight: '700', color: '#c8102e' },
-  progressBackground: { height: 8, backgroundColor: '#f0f0f0', borderRadius: 4, overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: '#c8102e' },
-  roadmapContainer: { marginBottom: 25 },
-  roadmapTitle: { fontSize: 18, fontWeight: "700", color: "#c8102e", marginBottom: 15 },
+  mottoSection: { marginBottom: 15, paddingHorizontal: 5 },
+  mottoText: { fontSize: 13, fontStyle: 'italic', color: '#666', fontWeight: '600' },
+  statsStrip: { flexDirection: 'row', gap: 10, marginBottom: 15 },
+  schoolTag: { fontSize: 11, backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1, borderColor: '#eee', color: '#666' },
+  roleTag: { fontSize: 11, backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1, borderColor: '#eee', color: '#666' },
+  
+  statsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
+  statCard: { flex: 1, backgroundColor: '#fff', marginHorizontal: 4, padding: 12, borderRadius: 20, alignItems: 'center', elevation: 4, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  statIconBg: { backgroundColor: '#FEF2F2', padding: 8, borderRadius: 12, marginBottom: 5 },
+  statValue: { fontSize: 16, fontWeight: '800', color: '#111' },
+  statLabel: { fontSize: 10, color: '#9CA3AF', fontWeight: '600', marginTop: 2 },
+
+  trustCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#111', padding: 15, borderRadius: 20, marginBottom: 25, elevation: 4 },
+  trustIconBg: { backgroundColor: '#c8102e', padding: 10, borderRadius: 12, marginRight: 15 },
+  trustTextContent: { flex: 1 },
+  trustLabel: { fontSize: 12, color: '#fff', fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+  trustDesc: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
+
+  electionCard: { backgroundColor: "#fff", borderRadius: 24, padding: 20, elevation: 8, shadowColor: '#000', shadowOffset: {width: 0, height: 4}, shadowOpacity: 0.1, shadowRadius: 15, marginBottom: 25 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+  cardTitle: { fontSize: 20, fontWeight: "900", color: "#111", flex: 1 },
+  liveBadge: { backgroundColor: '#DCFCE7', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  liveBadgeText: { color: '#166534', fontSize: 10, fontWeight: '900' },
+  
+  countdownContainer: {
+    backgroundColor: "#c8102e",
+    borderRadius: 24,
+    padding: 20,
+    alignItems: "center",
+    marginVertical: 10,
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  countdownHeader: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 12,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 1.5,
+    marginBottom: 15,
+  },
+  timeUnitContainer: {
+    alignItems: "center",
+    width: 60,
+  },
+  timeCard: {
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 12,
+    paddingVertical: 8,
+    width: "100%",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+  },
+  timeValue: {
+    color: "#fff",
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  timeLabel: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 6,
+    textTransform: "uppercase",
+  },
+  separator: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 20,
+    fontWeight: "900",
+    marginHorizontal: 2,
+    marginTop: -20,
+  },
+
+  countdownBox: { backgroundColor: "#c8102e", borderRadius: 16, padding: 15, marginBottom: 15, alignItems: "center" },
+  countdownLabel: { color: "rgba(255,255,255,0.8)", fontSize: 10, fontWeight: "800", textTransform: 'uppercase', letterSpacing: 1 },
+  timerRow: { flexDirection: "row", alignItems: "center", marginTop: 4, justifyContent: "center" },
+  timerText: { color: "#fff", fontSize: 22, fontWeight: "900" },
+  endedTag: { backgroundColor: '#F3F4F6', padding: 10, borderRadius: 12, alignItems: 'center' },
+  statusEnded: { color: "#999", fontSize: 14, fontWeight: "800" },
+  
+  trackerContainer: { marginVertical: 10 },
+  trackerTextRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  trackerLabel: { fontSize: 14, fontWeight: '700', color: '#374151' },
+  trackerPercent: { fontSize: 14, fontWeight: '900', color: '#c8102e' },
+  progressBackground: { height: 10, backgroundColor: '#F3F4F6', borderRadius: 10, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: '#c8102e', borderRadius: 10 },
+
+  roadmapContainer: { marginBottom: 30, backgroundColor: '#fff', padding: 20, borderRadius: 24, elevation: 2 },
+  roadmapTitle: { fontSize: 16, fontWeight: "900", color: "#111", marginBottom: 20 },
   roadmapRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   stepWrapper: { alignItems: 'center', flex: 1 },
-  stepCircle: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' },
+  stepCircle: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center', zIndex: 2, borderWidth: 2, borderColor: '#fff' },
   activeStepCircle: { backgroundColor: '#c8102e' },
-  stepNumber: { fontSize: 12, fontWeight: 'bold', color: '#aaa' },
+  stepNumber: { fontSize: 12, fontWeight: 'bold', color: '#9CA3AF' },
   activeStepNumber: { color: '#fff' },
-  stepLabel: { fontSize: 10, color: '#888', textAlign: 'center', marginTop: 4 },
-  activeStepLabel: { color: '#c8102e', fontWeight: 'bold' },
-  stepLine: { height: 2, flex: 1, backgroundColor: '#f0f0f0', marginHorizontal: -10, marginTop: -20 },
+  stepLabel: { fontSize: 10, color: '#9CA3AF', textAlign: 'center', marginTop: 8, fontWeight: '700' },
+  activeStepLabel: { color: '#c8102e' },
+  stepLine: { height: 4, flex: 1, backgroundColor: '#F3F4F6', marginHorizontal: -15, marginTop: -18, zIndex: 1 },
   activeStepLine: { backgroundColor: '#c8102e' },
-  newsSection: { marginBottom: 25 },
-  tickerContainer: { flexDirection: 'row', backgroundColor: '#fff1f0', borderWidth: 1, borderColor: '#ffa39e', borderRadius: 8, overflow: 'hidden', alignItems: 'center', height: 40, marginBottom: 15 },
-  tickerBadge: { backgroundColor: '#c8102e', paddingHorizontal: 10, height: '100%', justifyContent: 'center', zIndex: 2 },
-  tickerBadgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
+
+  candidatesSection: { marginBottom: 30 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+  sectionTitle: { fontSize: 20, fontWeight: "900", color: "#111" },
+  viewAllText: { color: '#c8102e', fontWeight: '700', fontSize: 13 },
+  filtersWrapper: { marginBottom: 15 },
+  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, paddingHorizontal: 12, height: 48, borderWidth: 1, borderColor: '#E5E7EB' },
+  searchBarInput: { flex: 1, marginLeft: 10, fontSize: 14, color: '#111' },
+  
+  candidateCard: { width: 165, backgroundColor: "#fff", borderRadius: 24, padding: 15, marginRight: 15, elevation: 6, shadowColor: '#000', shadowOpacity: 0.08, alignItems: "center", borderWidth: 1, borderColor: '#F3F4F6' },
+  candidatePhoto: { width: 85, height: 85, borderRadius: 20, marginBottom: 12 },
+  initialsCircle: { width: 85, height: 85, borderRadius: 20, backgroundColor: "#c8102e", justifyContent: "center", alignItems: "center", marginBottom: 12 },
+  initialsText: { color: "#fff", fontSize: 30, fontWeight: "900" },
+  candidateName: { fontSize: 14, fontWeight: "900", color: '#111' },
+  candidatePosition: { fontSize: 11, color: "#9CA3AF", fontWeight: '700', marginBottom: 12 },
+  detailsTag: { backgroundColor: '#111', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 10 },
+  detailsTagText: { color: '#fff', fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
+
+  newsSection: { marginBottom: 30 },
+  tickerContainer: { flexDirection: 'row', backgroundColor: '#FEF2F2', borderRadius: 16, overflow: 'hidden', alignItems: 'center', height: 48 },
+  tickerBadge: { backgroundColor: '#c8102e', paddingHorizontal: 15, height: '100%', justifyContent: 'center' },
+  tickerBadgeText: { color: '#fff', fontSize: 10, fontWeight: '900', letterSpacing: 1 },
   tickerWrapper: { flexDirection: 'row', alignItems: 'center' },
-  tickerText: { fontSize: 14, fontWeight: '600', color: '#c8102e', paddingLeft: 10 },
-  newsFeed: { backgroundColor: '#f9f9f9', borderRadius: 12, padding: 15 },
-  newsItem: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
-  newsDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#c8102e', marginTop: 6, marginRight: 10 },
-  newsItemText: { flex: 1, fontSize: 14, color: '#333' },
-  sectionTitle: { fontSize: 20, fontWeight: "700", color: "#c8102e", marginBottom: 12 },
-  candidateCard: { width: 160, backgroundColor: "#fff", borderRadius: 12, padding: 12, marginRight: 12, elevation: 3, alignItems: "center" },
-  candidatePhoto: { width: 80, height: 80, borderRadius: 40, marginBottom: 8 },
-  initialsCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#c8102e", justifyContent: "center", alignItems: "center", marginBottom: 8 },
-  initialsText: { color: "#fff", fontSize: 24, fontWeight: "700" },
-  candidateName: { fontSize: 14, fontWeight: "700", textAlign: "center" },
-  candidatePosition: { fontSize: 12, color: "#555", textAlign: "center" },
-  filtersContainer: { flexDirection: "row", flexWrap: "wrap", marginBottom: 12 },
-  filterInput: { flex: 1, minWidth: 90, borderWidth: 1, borderColor: "#ccc", borderRadius: 10, padding: 8, marginRight: 8, marginBottom: 6 },
-  clearButton: { backgroundColor: "#c8102e", padding: 10, borderRadius: 10 },
-  clearButtonText: { color: "#fff", fontWeight: "700" },
-  detailsButton: { backgroundColor: "#c8102e", paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, marginTop: 8 },
-  detailsButtonText: { color: "#fff", fontWeight: "700" },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
-  modalCard: { width: "90%", backgroundColor: "#fff", borderRadius: 16, padding: 20 },
-  modalName: { fontSize: 20, fontWeight: "700", color: "#c8102e" },
-  modalPosition: { fontSize: 16, marginBottom: 10 },
-  modalManifesto: { fontSize: 14, color: "#555", marginBottom: 20 },
-  closeButton: { backgroundColor: "#c8102e", padding: 12, borderRadius: 12, alignItems: "center" },
-  closeButtonText: { color: "#fff", fontWeight: "700" },
+  tickerText: { fontSize: 13, fontWeight: '700', color: '#c8102e', paddingLeft: 10 },
+
+  faqSection: { marginBottom: 30 },
+  faqItem: { backgroundColor: '#fff', padding: 18, borderRadius: 20, marginBottom: 12, elevation: 1, borderWidth: 1, borderColor: '#F3F4F6' },
+  faqHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  faqQuestion: { fontSize: 13, fontWeight: '800', color: '#111', flex: 1, paddingRight: 10 },
+  faqAnswer: { fontSize: 13, color: '#6B7280', marginTop: 12, lineHeight: 20, fontWeight: '500' },
+
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", alignItems: "center" },
+  modalCard: { width: "90%", backgroundColor: "#fff", borderRadius: 30, padding: 25, maxHeight: '85%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
+  modalName: { fontSize: 24, fontWeight: "900", color: "#111" },
+  modalPosition: { fontSize: 14, color: "#c8102e", fontWeight: '800', marginTop: 2 },
+  closeModalBtn: { padding: 5, backgroundColor: '#F3F4F6', borderRadius: 10 },
+  manifestoContainer: { backgroundColor: '#F9FAFB', borderRadius: 20, padding: 20, marginVertical: 10 },
+  manifestoTitle: { fontSize: 12, fontWeight: '900', color: '#9CA3AF', textTransform: 'uppercase', marginBottom: 10, letterSpacing: 1 },
+  modalManifesto: { fontSize: 15, color: "#4B5563", lineHeight: 24, fontWeight: '500' },
+  closeButton: { backgroundColor: "#111", padding: 18, borderRadius: 18, alignItems: "center", marginTop: 15 },
+  closeButtonText: { color: "#fff", fontWeight: "900", fontSize: 16 },
+  footerSpace: { height: 40 },
 });

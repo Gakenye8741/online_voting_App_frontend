@@ -2,24 +2,30 @@ import React, { useEffect, useRef } from "react";
 import {
   View,
   Text,
-  Pressable,
   StyleSheet,
   ScrollView,
   Animated,
   StatusBar,
+  Platform,
+  Pressable,
+  RefreshControl,
+  TouchableOpacity,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import * as Animatable from "react-native-animatable";
+import * as Haptics from "expo-haptics";
 
-// LAIKIPIA UNIVERSITY THEME COLORS
-const UNIVERSITY_RED = "#D32F2F";
+// LAIKIPIA UNIVERSITY THEME COLORS (Synced with Candidates Screen)
+const UNIVERSITY_RED = "#c8102e";
 const UNIVERSITY_WHITE = "#FFFFFF";
-const DARK_NAVY = "#1A237E";
-const SOFT_BG = "#F8F9FB";
+const SOFT_BG = "#f8f9fa";
 
 export default function MoreScreen() {
   const router = useRouter();
+  const [refreshing, setRefreshing] = React.useState(false);
 
   const sections = [
     {
@@ -34,7 +40,7 @@ export default function MoreScreen() {
       title: "Candidate Portal",
       items: [
         { title: "Apply for Position", icon: "badge-account-horizontal-outline", path: "/more/apply", type: 'material' },
-        { title: "Application Progress", icon: " gavel-outline", path: "/more/ApplicationProgress", type: 'material' },
+        { title: "Application Progress", icon: "gavel-outline", path: "/more/ApplicationProgress", type: 'material' },
         { title: "Coalition Management", icon: "account-group-outline", path: "/more/Coalition", type: 'material' },
       ],
     },
@@ -63,93 +69,101 @@ export default function MoreScreen() {
     },
   ];
 
-  const fadeAnims = useRef(sections.map(() => new Animated.Value(0))).current;
+  const onRefresh = () => {
+    setRefreshing(true);
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setTimeout(() => setRefreshing(false), 1500);
+  };
 
-  useEffect(() => {
-    Animated.stagger(
-      80,
-      fadeAnims.map((anim) =>
-        Animated.spring(anim, {
-          toValue: 1,
-          tension: 50,
-          friction: 9,
-          useNativeDriver: true,
-        })
-      )
-    ).start();
-  }, []);
+  const handlePress = (path: string) => {
+    if (Platform.OS !== 'web') Haptics.selectionAsync();
+    router.push(path as any);
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle="light-content" backgroundColor={UNIVERSITY_RED} />
+      
       <ScrollView 
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[UNIVERSITY_RED]} />}
       >
-        <View style={styles.headerContainer}>
-          <Text style={styles.mainTitle}>Settings</Text>
-          <Text style={styles.subHeader}>Configure your e-voting experience</Text>
-        </View>
+        {/* Sync with CandidatesScreen Header Syntax */}
+        <LinearGradient colors={[UNIVERSITY_RED, "#8e0b20"]} style={styles.headerGradient}>
+          <Animatable.View animation="fadeIn" duration={800} style={styles.headerContent}>
+             <View style={styles.headerTopRow}>
+                <Text style={styles.headerLabel}>User Dashboard</Text>
+                <View style={styles.statusBadge}><Text style={styles.statusText}>AUTHORIZED</Text></View>
+             </View>
+             <Text style={styles.headerTitle}>Account Settings</Text>
+             <Text style={styles.headerSubtitle}>Personalize your student voting profile</Text>
+          </Animatable.View>
+          <MaterialCommunityIcons name="cog-refresh" size={140} color="rgba(255,255,255,0.08)" style={styles.headerIconBg} />
+        </LinearGradient>
 
-        {sections.map((section, sIndex) => (
-          <Animated.View
-            key={sIndex}
-            style={{
-              opacity: fadeAnims[sIndex],
-              transform: [
-                {
-                  translateY: fadeAnims[sIndex].interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [30, 0],
-                  }),
-                },
-              ],
-            }}
-          >
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>{section.title}</Text>
-              
+        <View style={styles.mainContainer}>
+          {sections.map((section, sIndex) => (
+            <Animatable.View 
+                key={sIndex} 
+                animation="fadeInUp" 
+                delay={sIndex * 100} 
+                style={styles.sectionContainer}
+            >
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleBox}>
+                    <Text style={styles.sectionTitle}>{section.title}</Text>
+                </View>
+                <View style={styles.divider} />
+              </View>
+
               <View style={styles.cardGroup}>
                 {section.items.map((item, index) => (
                   <View key={index}>
                     <Pressable
                       style={({ pressed }) => [
                         styles.item,
-                        pressed && { backgroundColor: "#F5F5F5" },
+                        pressed && { backgroundColor: "#f0f0f0" },
                       ]}
-                      onPress={() => router.push(item.path as any)}
+                      onPress={() => handlePress(item.path)}
                     >
-                      <View style={styles.itemContent}>
-                        <View style={styles.iconCircle}>
+                      <View style={styles.itemLeft}>
+                        <View style={styles.iconContainer}>
                           {item.type === 'material' ? (
-                            <MaterialCommunityIcons name={item.icon as any} size={22} color={UNIVERSITY_RED} />
+                            <MaterialCommunityIcons name={item.icon as any} size={20} color={UNIVERSITY_RED} />
                           ) : (
-                            <Ionicons name={item.icon as any} size={22} color={UNIVERSITY_RED} />
+                            <Ionicons name={item.icon as any} size={20} color={UNIVERSITY_RED} />
                           )}
                         </View>
                         <Text style={styles.itemText}>{item.title}</Text>
                       </View>
-                      <Ionicons name="chevron-forward" size={16} color="#BDBDBD" />
+                      <Ionicons name="chevron-forward" size={16} color="#D1D1D6" />
                     </Pressable>
-                    {index < section.items.length - 1 && <View style={styles.divider} />}
+                    {index < section.items.length - 1 && <View style={styles.itemSeparator} />}
                   </View>
                 ))}
               </View>
+            </Animatable.View>
+          ))}
+
+          <Animatable.View animation="fadeInUp" delay={600}>
+            <TouchableOpacity 
+                style={styles.logoutBtn} 
+                activeOpacity={0.8}
+                onPress={() => {
+                    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                    router.push("/more/logout" as any);
+                }}
+            >
+                <Ionicons name="log-out" size={20} color="#fff" />
+                <Text style={styles.logoutText}>Terminate Session</Text>
+            </TouchableOpacity>
+
+            <View style={styles.footer}>
+                <Text style={styles.footerText}>LAIKIPIA UNIVERSITY</Text>
+                <Text style={styles.devTag}>System Architect: Brian Gakenye • v1.0.4</Text>
             </View>
-          </Animated.View>
-        ))}
-
-        <Pressable 
-          style={styles.logoutBtn}
-          onPress={() => router.push("/more/logout" as any)}
-        >
-          <Ionicons name="log-out-outline" size={20} color={UNIVERSITY_RED} />
-          <Text style={styles.logoutText}>Sign Out of System</Text>
-        </Pressable>
-
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>LAIKIPIA UNIVERSITY E-VOTING PORTAL</Text>
-          <Text style={styles.devTag}>Developed by Gakenye Ndiritu • v1.0.4</Text>
+          </Animatable.View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -157,114 +171,36 @@ export default function MoreScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: SOFT_BG,
-  },
-  headerContainer: {
-    paddingHorizontal: 24,
-    paddingTop: 30,
-    paddingBottom: 10,
-  },
-  mainTitle: {
-    fontSize: 32,
-    fontWeight: "900",
-    color: DARK_NAVY,
-  },
-  subHeader: {
-    fontSize: 14,
-    color: "#757575",
-    marginTop: 4,
-    fontWeight: "500",
-  },
-  section: {
-    marginTop: 28,
-    paddingHorizontal: 16,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#616161",
-    marginBottom: 10,
-    marginLeft: 8,
-    textTransform: "uppercase",
-    letterSpacing: 1.1,
-  },
-  cardGroup: {
-    backgroundColor: UNIVERSITY_WHITE,
-    borderRadius: 24,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "#E8EAF6",
-    // Premium Shadow
-    shadowColor: "#1A237E",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.03,
-    shadowRadius: 15,
-    elevation: 2,
-  },
-  item: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-  },
-  itemContent: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  iconCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: "#FFF5F5", 
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  itemText: {
-    marginLeft: 15,
-    fontSize: 15,
-    color: "#212121",
-    fontWeight: "600",
-  },
-  divider: {
-    height: 1,
-    backgroundColor: "#F5F5F5",
-    marginHorizontal: 20,
-  },
-  logoutBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 40,
-    marginHorizontal: 20,
-    paddingVertical: 16,
-    borderRadius: 20,
-    backgroundColor: '#FFF',
-    borderWidth: 1,
-    borderColor: '#FFEBEB'
-  },
-  logoutText: {
-    color: UNIVERSITY_RED,
-    fontWeight: '800',
-    fontSize: 15,
-    marginLeft: 10
-  },
-  footer: {
-    marginTop: 50,
-    alignItems: "center",
-  },
-  footerText: {
-    fontSize: 10,
-    fontWeight: "900",
-    color: "#9E9E9E",
-    letterSpacing: 1.5,
-  },
-  devTag: {
-    fontSize: 10,
-    color: "#BDBDBD",
-    marginTop: 6,
-    fontWeight: "600"
-  }
+  safeArea: { flex: 1, backgroundColor: SOFT_BG },
+  scrollContent: { paddingBottom: 30 },
+  headerGradient: { paddingTop: 40, paddingBottom: 60, paddingHorizontal: 20, position: 'relative', overflow: 'hidden' },
+  headerContent: { zIndex: 2 },
+  headerTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 8 },
+  headerLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
+  statusBadge: { backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  statusText: { color: '#fff', fontSize: 10, fontWeight: '900' },
+  headerTitle: { fontSize: 32, fontWeight: "900", color: "#fff" },
+  headerSubtitle: { color: 'rgba(255,255,255,0.8)', fontSize: 14, marginTop: 4 },
+  headerIconBg: { position: 'absolute', right: -30, bottom: -30, zIndex: 1 },
+  
+  mainContainer: { padding: 16, marginTop: -25, borderTopLeftRadius: 25, borderTopRightRadius: 25, backgroundColor: SOFT_BG },
+  sectionContainer: { marginBottom: 25 },
+  sectionHeader: { marginBottom: 12, marginLeft: 8 },
+  sectionTitleBox: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 5 },
+  sectionTitle: { fontSize: 13, fontWeight: '900', color: '#1a1a1a', textTransform: 'uppercase', letterSpacing: 1 },
+  divider: { height: 3, width: 30, backgroundColor: UNIVERSITY_RED, borderRadius: 2 },
+  
+  cardGroup: { backgroundColor: '#fff', borderRadius: 20, elevation: 4, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 12, overflow: 'hidden' },
+  item: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 16, paddingHorizontal: 16 },
+  itemLeft: { flexDirection: "row", alignItems: "center" },
+  iconContainer: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#c8102e10', justifyContent: "center", alignItems: "center" },
+  itemText: { marginLeft: 14, fontSize: 15, color: "#1a1a1a", fontWeight: "700" },
+  itemSeparator: { height: 1, backgroundColor: "#f5f5f5", marginLeft: 68 },
+  
+  logoutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 10, marginHorizontal: 4, paddingVertical: 18, borderRadius: 20, backgroundColor: '#1a1a1a', gap: 10, elevation: 4 },
+  logoutText: { color: "#fff", fontWeight: '900', fontSize: 15, letterSpacing: 0.5 },
+  
+  footer: { marginTop: 40, alignItems: "center", paddingBottom: 20 },
+  footerText: { fontSize: 11, fontWeight: "900", color: "#AEAEB2", letterSpacing: 2 },
+  devTag: { fontSize: 10, color: "#C7C7CC", marginTop: 6, fontWeight: "600" },
 });
