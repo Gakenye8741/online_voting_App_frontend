@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1002298380130",
+    "project_id": "laikipia-evote",
+    "storage_bucket": "laikipia-evote.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1002298380130:android:9c6f05d2d2de8eed24663b",
+        "android_client_info": {
+          "package_name": "com.gakenye.laikipiaevote"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCht_R05E4lF1cCelL7zyfDpX-Lp9yco4Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

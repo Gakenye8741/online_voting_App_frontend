@@ -48,6 +48,7 @@ const ResultsScreen = () => {
   const [verifyHash, setVerifyHash] = useState(''); 
   const [selectedPositionId, setSelectedPositionId] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
+  const [isNotified, setIsNotified] = useState(false); // New state for notifications
 
   useEffect(() => {
     const loadData = async () => {
@@ -133,6 +134,21 @@ const ResultsScreen = () => {
     }
   };
 
+  const handleToggleNotification = () => {
+    setIsNotified(!isNotified);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Alert.alert(
+        !isNotified ? "Notifications On" : "Notifications Off",
+        !isNotified ? "You will be notified when the final results are certified." : "You have unsubscribed from result updates."
+    );
+  };
+
+  const handleDownloadCertificate = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Alert.alert("Generating Certificate", "Your official election result summary is being prepared for download.");
+    // In a real scenario, trigger a PDF generation service here
+  };
+
   const handlePasteHash = async () => {
     const text = await Clipboard.getStringAsync();
     if (text.startsWith('0x')) {
@@ -168,26 +184,47 @@ const ResultsScreen = () => {
         <Animatable.View animation="fadeInLeft" style={styles.headerLeft}>
           <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.logo} />
           <View>
+            <View style={styles.nameRow}>
+                <Text style={styles.userNameText}>{user?.name || "User"}</Text>
+                <View style={styles.votedBadge}>
+                    <Ionicons name="checkmark-circle" size={12} color="#16a34a" />
+                    <Text style={styles.votedBadgeText}>VOTED</Text>
+                </View>
+            </View>
             <Text style={styles.greetingText}>Analytics Dashboard</Text>
-            <Text style={styles.userNameText}>{user?.name || "User"}</Text>
           </View>
         </Animatable.View>
         <View style={styles.headerRightGroup}>
+            {!isCompleted && (
+                <TouchableOpacity onPress={handleToggleNotification} style={styles.notificationBtn}>
+                    <Ionicons name={isNotified ? "notifications" : "notifications-outline"} size={20} color={isNotified ? UNIVERSITY_RED : "#111"} />
+                </TouchableOpacity>
+            )}
             <TouchableOpacity onPress={handleShareResults} style={styles.shareBtn}>
                 <Ionicons name="share-social-outline" size={20} color="#111" />
             </TouchableOpacity>
-            <View style={styles.liveIndicator}>
-                <View style={[styles.pulseDot, isCompleted && { backgroundColor: '#166534' }]} />
-                <Text style={[styles.liveText, isCompleted && { color: '#166534' }]}>
-                    {isCompleted ? 'ARCHIVED' : 'LIVE'}
-                </Text>
-            </View>
         </View>
       </View>
 
       <View style={styles.container}>
         <Animatable.View animation="fadeInUp" style={styles.electionInfoCard}>
-            <Text style={styles.electionTitle}>{resolvedName}</Text>
+            <View style={styles.electionHeaderRow}>
+                <View style={{flex: 1}}>
+                    <Text style={styles.electionTitle}>{resolvedName}</Text>
+                    <View style={styles.liveIndicatorRow}>
+                        <View style={[styles.pulseDot, isCompleted && { backgroundColor: '#166534' }]} />
+                        <Text style={[styles.liveText, isCompleted && { color: '#166534' }]}>
+                            {isCompleted ? 'ARCHIVED' : 'LIVE DATA STREAM'}
+                        </Text>
+                    </View>
+                </View>
+                {isCompleted && (
+                    <TouchableOpacity onPress={handleDownloadCertificate} style={styles.certBtn}>
+                        <MaterialCommunityIcons name="file-certificate" size={24} color={UNIVERSITY_RED} />
+                    </TouchableOpacity>
+                )}
+            </View>
+            
             <View style={styles.participationTracker}>
                 <View style={styles.trackerHeader}>
                     <Text style={styles.trackerLabel}>Real-time Voter Turnout</Text>
@@ -392,17 +429,24 @@ const styles = StyleSheet.create({
   headerLeft: { flexDirection: 'row', alignItems: 'center' },
   headerRightGroup: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   shareBtn: { padding: 8, backgroundColor: '#F9FAFB', borderRadius: 10, borderWidth: 1, borderColor: '#E5E7EB' },
+  notificationBtn: { padding: 8, backgroundColor: '#F9FAFB', borderRadius: 10, borderWidth: 1, borderColor: '#E5E7EB' },
   logo: { width: 40, height: 40, marginRight: 12, borderRadius: 10 },
-  greetingText: { fontSize: 12, color: "#9CA3AF", fontWeight: '600', textTransform: 'uppercase' },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  greetingText: { fontSize: 11, color: "#9CA3AF", fontWeight: '700', textTransform: 'uppercase', marginTop: 2 },
   userNameText: { fontSize: 16, fontWeight: "900", color: "#111" },
-  liveIndicator: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF2F2', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+  votedBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0fdf4', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 0.5, borderColor: '#16a34a40' },
+  votedBadgeText: { fontSize: 8, fontWeight: '900', color: '#16a34a', marginLeft: 3 },
+  
+  electionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 15 },
+  liveIndicatorRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF2F2', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, alignSelf: 'flex-start' },
   pulseDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: UNIVERSITY_RED, marginRight: 6 },
-  liveText: { fontSize: 10, fontWeight: '900', color: UNIVERSITY_RED },
+  liveText: { fontSize: 9, fontWeight: '900', color: UNIVERSITY_RED, letterSpacing: 0.5 },
+  certBtn: { padding: 10, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#F1F5F9', elevation: 2 },
 
   container: { padding: 20 },
   electionInfoCard: { backgroundColor: '#fff', borderRadius: 24, padding: 20, marginBottom: 20, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowOffset: { width: 0, height: 2 } },
-  electionTitle: { fontSize: 24, fontWeight: '900', color: '#111', marginBottom: 20 },
-  participationTracker: { marginTop: 10 },
+  electionTitle: { fontSize: 22, fontWeight: '900', color: '#111', marginBottom: 6 },
+  participationTracker: { marginTop: 15 },
   trackerHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   trackerLabel: { fontSize: 13, fontWeight: '700', color: '#6B7280' },
   trackerValue: { fontSize: 16, fontWeight: '900', color: UNIVERSITY_RED },

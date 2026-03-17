@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback } from "react";
 import {
   View,
   Text,
@@ -8,15 +8,17 @@ import {
   StatusBar,
   ActivityIndicator,
   RefreshControl,
-  Platform,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons, MaterialCommunityIcons, Octicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
+import { useSelector } from "react-redux"; // Added
+import { RootState } from "@/src/store"; // Adjust path as needed
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
+import * as Haptics from "expo-haptics"; // Added for better UX
 
-// Import your RTK Query hooks
 import { 
   useGetUserNotificationsQuery, 
   useMarkAsReadMutation, 
@@ -25,7 +27,6 @@ import {
 
 dayjs.extend(relativeTime);
 
-// UNIVERSITY THEME COLORS
 const UNIVERSITY_RED = "#D32F2F";
 const UNIVERSITY_WHITE = "#FFFFFF";
 const DARK_NAVY = "#1A237E";
@@ -33,30 +34,58 @@ const BACKGROUND_GREY = "#FAFAFA";
 
 export default function NotificationPage() {
   const navigation = useNavigation();
-
-  // HARDCODED ID FROM YOUR JSON (Replace with your useSelector(state => state.auth.user.id) later)
-  const userId = "a03561f1-5793-479f-aba4-bcb167729bd0";
-
-  // 1. Fetch data for this specific user
-  const { data: notifications, isLoading, isFetching, refetch } = useGetUserNotificationsQuery(userId);
   
-  // 2. Mutations
+  // Use actual user ID from your auth state
+  // const user = useSelector((state: RootState) => state.auth.user);
+  const userId = "a03561f1-5793-479f-aba4-bcb167729bd0"; 
+
+  const { data: notifications, isLoading, isFetching, refetch } = useGetUserNotificationsQuery(userId);
   const [markAsRead] = useMarkAsReadMutation();
   const [markAllRead] = useMarkAllReadMutation();
 
   const unreadCount = notifications?.filter(n => !n.is_read).length || 0;
 
-  const handlePressNotification = async (notifId: string, isRead: boolean) => {
-    if (!isRead) {
-      await markAsRead(notifId);
+  const onRefresh = useCallback(() => {
+    refetch();
+  }, [refetch]);
+
+  const handlePressNotification = async (item: any) => {
+    // 1. Tactile feedback
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // 2. Mark as read on backend
+    if (!item.is_read) {
+      await markAsRead(item.id || item._id);
     }
+
+    // 3. Logic for Navigation based on notification data
+    // If the admin sent an 'election' type notification, go to results
+    if (item.data?.electionId) {
+      // navigation.navigate("results", { id: item.data.electionId });
+    }
+  };
+
+  const handleMarkAll = () => {
+    Alert.alert(
+      "Clear Indicators",
+      "Mark all official briefings as read?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Confirm", 
+          onPress: () => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            markAllRead(userId);
+          }
+        }
+      ]
+    );
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={UNIVERSITY_WHITE} />
       
-      {/* TOP NAVIGATION BAR - Profile Style */}
       <View style={styles.topNav}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={22} color={UNIVERSITY_RED} />
@@ -64,7 +93,7 @@ export default function NotificationPage() {
         <Text style={styles.topNavTitle}>Communication Center</Text>
         <TouchableOpacity 
           style={styles.actionIcon} 
-          onPress={() => markAllRead(userId)}
+          onPress={handleMarkAll}
           disabled={unreadCount === 0}
         >
           <MaterialCommunityIcons 
@@ -79,11 +108,15 @@ export default function NotificationPage() {
         contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={isFetching} onRefresh={refetch} tintColor={UNIVERSITY_RED} />
+          <RefreshControl 
+            refreshing={isFetching} 
+            onRefresh={onRefresh} 
+            tintColor={UNIVERSITY_RED} 
+            colors={[UNIVERSITY_RED]} // Android
+          />
         }
       >
         
-        {/* EXECUTIVE HEADER SECTION */}
         <View style={styles.headerSection}>
           <View style={styles.iconWrapper}>
             <View style={styles.iconInner}>
@@ -96,13 +129,14 @@ export default function NotificationPage() {
           
           <View style={styles.badgeRow}>
             <View style={styles.statusBadge}>
-              <View style={styles.statusDot} />
-              <Text style={styles.statusText}>{unreadCount} Unread Message(s)</Text>
+              <View style={[styles.statusDot, { backgroundColor: isFetching ? '#FFB300' : UNIVERSITY_RED }]} />
+              <Text style={styles.statusText}>
+                {isFetching ? "Syncing with Server..." : `${unreadCount} Unread Briefing(s)`}
+              </Text>
             </View>
           </View>
         </View>
 
-        {/* NOTIFICATION FEED */}
         <View style={styles.sectionDivider}>
           <Text style={styles.sectionLabel}>Recent Briefings</Text>
           <View style={styles.dividerLine} />
@@ -111,13 +145,15 @@ export default function NotificationPage() {
         {isLoading ? (
           <View style={styles.loaderContainer}>
             <ActivityIndicator size="large" color={UNIVERSITY_RED} />
+            <Text style={styles.loadingText}>Fetching secure updates...</Text>
           </View>
         ) : notifications && notifications.length > 0 ? (
           notifications.map((item) => (
             <TouchableOpacity 
               key={item.id || item._id} 
+              activeOpacity={0.7}
               style={[styles.notifCard, !item.is_read && styles.unreadCard]}
-              onPress={() => handlePressNotification(item.id || item._id || "", item.is_read)}
+              onPress={() => handlePressNotification(item)}
             >
               <View style={[styles.iconCircle, !item.is_read && styles.unreadIconCircle]}>
                 <MaterialCommunityIcons 
@@ -142,15 +178,14 @@ export default function NotificationPage() {
           <View style={styles.emptyState}>
             <MaterialCommunityIcons name="bell-off-outline" size={60} color="#E0E0E0" />
             <Text style={styles.emptyTitle}>Secure & Empty</Text>
-            <Text style={styles.emptySub}>No official notifications found for your registration number.</Text>
+            <Text style={styles.emptySub}>Your official inbox is currently clear.</Text>
           </View>
         )}
 
-        {/* FOOTER */}
         <View style={styles.footer}>
           <View style={styles.footerLine} />
           <Text style={styles.footerMain}>LAIKIPIA UNIVERSITY ELECTORAL COMMISSION</Text>
-          <Text style={styles.footerSub}>SYSTEM SECURED BY GAKENYE NDIRITU • © 2026</Text>
+          <Text style={styles.footerSub}>SYSTEM SECURED • © 2026</Text>
         </View>
 
       </ScrollView>
@@ -168,9 +203,7 @@ const styles = StyleSheet.create({
   backButton: { padding: 8, borderRadius: 12, backgroundColor: '#FFF2F2' },
   actionIcon: { padding: 8 },
   topNavTitle: { fontSize: 13, fontWeight: "800", color: "#666", textTransform: 'uppercase', letterSpacing: 1.2 },
-  
   scrollContainer: { padding: 20, paddingBottom: 50 },
-
   headerSection: { alignItems: 'center', marginBottom: 30 },
   iconWrapper: { position: 'relative', marginBottom: 15 },
   iconInner: { width: 86, height: 86, borderRadius: 30, backgroundColor: DARK_NAVY, justifyContent: 'center', alignItems: 'center' },
@@ -179,16 +212,12 @@ const styles = StyleSheet.create({
   pageSubTitle: { fontSize: 13, color: UNIVERSITY_RED, fontWeight: "700", marginTop: 4, textTransform: 'uppercase' },
   badgeRow: { marginTop: 15 },
   statusBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF2F2', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 25 },
-  statusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: UNIVERSITY_RED, marginRight: 8 },
+  statusDot: { width: 7, height: 7, borderRadius: 4, marginRight: 8 },
   statusText: { fontSize: 12, fontWeight: '800', color: UNIVERSITY_RED },
-
   sectionDivider: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   sectionLabel: { fontSize: 13, fontWeight: "900", color: "#222", textTransform: 'uppercase' },
   dividerLine: { flex: 1, height: 1, backgroundColor: '#EEE', marginLeft: 15 },
-
-  notifCard: { 
-    flexDirection: 'row', backgroundColor: UNIVERSITY_WHITE, padding: 16, borderRadius: 22, marginBottom: 12, alignItems: 'center', borderWidth: 1, borderColor: '#F0F0F0' 
-  },
+  notifCard: { flexDirection: 'row', backgroundColor: UNIVERSITY_WHITE, padding: 16, borderRadius: 22, marginBottom: 12, alignItems: 'center', borderWidth: 1, borderColor: '#F0F0F0' },
   unreadCard: { borderColor: '#FFEBEB', borderLeftWidth: 5, borderLeftColor: UNIVERSITY_RED },
   iconCircle: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#F5F5F5', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   unreadIconCircle: { backgroundColor: '#FFF2F2' },
@@ -198,12 +227,11 @@ const styles = StyleSheet.create({
   boldTitle: { color: '#111', fontWeight: '800' },
   timeStamp: { fontSize: 10, color: '#AAA', fontWeight: '700' },
   notifMessage: { fontSize: 13, color: '#777', lineHeight: 18 },
-
   loaderContainer: { flex: 1, alignItems: 'center', marginTop: 50 },
+  loadingText: { marginTop: 10, color: '#666', fontSize: 12, fontWeight: '600' },
   emptyState: { alignItems: 'center', paddingVertical: 60 },
   emptyTitle: { fontSize: 18, fontWeight: '800', color: '#444', marginTop: 15 },
   emptySub: { fontSize: 14, color: '#AAA', marginTop: 6, textAlign: 'center' },
-
   footer: { marginTop: 40, alignItems: 'center' },
   footerLine: { width: 40, height: 3, backgroundColor: UNIVERSITY_RED, borderRadius: 2, marginBottom: 15 },
   footerMain: { fontSize: 10, fontWeight: '900', color: '#333', letterSpacing: 1 },
