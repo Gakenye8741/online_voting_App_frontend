@@ -69,7 +69,7 @@ export const votesApi = createApi({
       invalidatesTags: ["Results", "MyHistory"],
     }),
 
-    // 2. NEW: Cast Bulk Votes (POST /api/votes/cast-bulk)
+    // 2. Cast Bulk Votes (POST /api/votes/cast-bulk)
     castBulkVotes: builder.mutation<BulkVoteResponse, { votesList: VoteRequest[] }>({
       query: (body) => ({
         url: "/cast-bulk",
@@ -79,8 +79,9 @@ export const votesApi = createApi({
       invalidatesTags: ["Results", "MyHistory"],
     }),
 
-    // 3. NEW: Get My Voting History (GET /api/votes/my-votes/:election_id)
-    getMyVotes: builder.query<{ data: { votes: VoteRecord[], totalCast: number } }, string>({
+    // 3. Get My Voting History (GET /api/votes/my-votes/:election_id)
+    // Updated to match your backend response: { data: { votes: [], totalCast: "1" } }
+    getMyVotes: builder.query<{ data: { votes: VoteRecord[], totalCast: string } }, string>({
       query: (electionId) => ({
         url: `/my-votes/${electionId}`,
         method: "GET",

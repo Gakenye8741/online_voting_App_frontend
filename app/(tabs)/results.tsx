@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -7,7 +7,6 @@ import {
   ActivityIndicator, 
   RefreshControl, 
   Dimensions, 
-  StatusBar, 
   TextInput, 
   TouchableOpacity, 
   Alert,
@@ -15,8 +14,8 @@ import {
   Image,
   Share
 } from 'react-native';
-// Updated to use the non-deprecated SafeAreaView
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { useRoute } from '@react-navigation/native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { PieChart } from "react-native-chart-kit";
@@ -66,7 +65,6 @@ const ResultsScreen = () => {
   const { resolvedId, resolvedName, electionStatus } = useMemo(() => {
     const navId = params?.electionId || params?.id;
     const elections = (allElections as any)?.elections || [];
-    // Fixed _id error by using a type cast for the finding logic
     let target = elections.find((e: any) => (e.id || e._id) === navId);
     
     if (!target && elections.length > 0) {
@@ -90,36 +88,6 @@ const ResultsScreen = () => {
     refetchOnFocus: true,
   });
 
-  const handleShareResults = async () => {
-    try {
-      await Share.share({
-        message: `Check out the official results for ${resolvedName} on the Blockchain Voting Portal! Total Votes: ${totalVotes}`,
-      });
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
-  const handlePasteHash = async () => {
-    const text = await Clipboard.getStringAsync();
-    if (text.startsWith('0x')) {
-      setVerifyHash(text);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } else {
-      Alert.alert("No Hash Found", "The text in your clipboard doesn't look like a transaction hash.");
-    }
-  };
-
-  const handleVerifyVote = () => {
-    if (!verifyHash.startsWith('0x') || verifyHash.length < 40) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert("Invalid Hash", "Please enter a valid Sepolia transaction hash.");
-      return;
-    }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Linking.openURL(`https://sepolia.etherscan.io/tx/${verifyHash}`);
-  };
-
   const { sortedResults, totalVotes, turnoutPercentage, chartData } = useMemo(() => {
     const rawData = (data?.data || []) as ElectionResult[]; 
     const baseData = selectedPositionId 
@@ -142,6 +110,48 @@ const ResultsScreen = () => {
 
     return { sortedResults: sorted, totalVotes: total, turnoutPercentage: turnout, chartData: chart };
   }, [data, selectedPositionId, userCountData]);
+
+  const handleShareResults = async () => {
+    try {
+      const positionFilterText = selectedPositionId ? ` for ${positionsData?.positions.find((p: any) => p.id === selectedPositionId)?.name}` : "";
+      await Share.share({
+        message: `📊 Official ${resolvedName} Leaderboard${positionFilterText}:\n\nTotal Votes: ${totalVotes}\nTurnout: ${turnoutPercentage.toFixed(1)}%\n\nVerified on the Blockchain Ledger.`,
+      });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleShareCandidate = async (item: ElectionResult, positionName: string) => {
+    try {
+        const percentage = totalVotes > 0 ? (Number(item.votes_count) / totalVotes) * 100 : 0;
+        await Share.share({
+            message: `🗳️ Candidate Spotlight: ${item.candidate_name}\nPosition: ${positionName}\nVotes: ${Number(item.votes_count).toLocaleString()} (${percentage.toFixed(1)}%)\n\nCheck live updates on the Laikipia E-Vote Portal!`,
+        });
+    } catch (error) {
+        console.error(error);
+    }
+  };
+
+  const handlePasteHash = async () => {
+    const text = await Clipboard.getStringAsync();
+    if (text.startsWith('0x')) {
+      setVerifyHash(text);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } else {
+      Alert.alert("No Hash Found", "The clipboard doesn't contain a valid transaction hash.");
+    }
+  };
+
+  const handleVerifyVote = () => {
+    if (!verifyHash.startsWith('0x') || verifyHash.length < 40) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Invalid Hash", "Please enter a valid Sepolia transaction hash.");
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Linking.openURL(`https://sepolia.etherscan.io/tx/${verifyHash}`);
+  };
 
   const filteredResults = useMemo(() => {
     return sortedResults.filter(c => {
@@ -186,7 +196,7 @@ const ResultsScreen = () => {
                 <View style={styles.progressBackground}>
                     <View style={[styles.progressFill, { width: `${turnoutPercentage}%` }]} />
                 </View>
-                <Text style={styles.voterSubtext}>{totalVotes.toLocaleString()} votes out of {userCountData?.count || 0} registered</Text>
+                <Text style={styles.voterSubtext}>{totalVotes.toLocaleString()} votes cast via secure ledger</Text>
             </View>
         </Animatable.View>
 
@@ -197,13 +207,18 @@ const ResultsScreen = () => {
            <View style={styles.trustIconBg}><Ionicons name="shield-checkmark" size={24} color="#fff" /></View>
            <View style={styles.trustTextContent}>
               <Text style={styles.trustLabel}>Immutable Ledger Verified</Text>
-              <Text style={styles.trustDesc}>Click to view the cryptographic proof on Sepolia Explorer.</Text>
+              <Text style={styles.trustDesc}>View cryptographic proof on Sepolia Explorer.</Text>
            </View>
            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
         </TouchableOpacity>
 
         <View style={styles.filterSection}>
-            <Text style={styles.sectionTitle}>Filter Results</Text>
+            <View style={styles.filterHeaderRow}>
+                <Text style={styles.sectionTitle}>Filter Results</Text>
+                <TouchableOpacity onPress={handleShareResults}>
+                    <Text style={styles.shareStatsText}>Share Tally</Text>
+                </TouchableOpacity>
+            </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
                 <TouchableOpacity 
                     onPress={() => setSelectedPositionId(null)}
@@ -263,10 +278,10 @@ const ResultsScreen = () => {
               <Ionicons name="finger-print" size={20} color={UNIVERSITY_RED} />
               <Text style={styles.verifyTitle}>Audit Your Vote</Text>
             </View>
-            <Text style={styles.verifyDesc}>Paste your transaction hash to verify your specific entry on the blockchain ledger.</Text>
+            <Text style={styles.verifyDesc}>Paste your transaction hash to verify your immutable entry.</Text>
             <View style={styles.verifyInputRow}>
                 <TextInput 
-                    placeholder="0x... (Transaction Hash)" 
+                    placeholder="0x... Transaction Hash" 
                     style={styles.verifyInput}
                     value={verifyHash}
                     onChangeText={setVerifyHash}
@@ -276,11 +291,9 @@ const ResultsScreen = () => {
                     <Ionicons name="clipboard-outline" size={20} color={UNIVERSITY_RED} />
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.verifyBtn} onPress={handleVerifyVote}>
-                    {/* Fixed Icon Name here: changed checkmark-shield to shield-checkmark */}
                     <Ionicons name="shield-checkmark" size={20} color="#fff" />
                 </TouchableOpacity>
             </View>
-            <Text style={styles.auditNote}>*This confirms your vote was cast and stored immutably.</Text>
         </View>
         <View style={styles.endPadding} />
     </Animatable.View>
@@ -302,7 +315,12 @@ const ResultsScreen = () => {
                 )}
             </View>
             <View style={styles.candInfo}>
-                <Text style={styles.candName}>{item.candidate_name || "Anonymous"}</Text>
+                <View style={styles.nameShareRow}>
+                    <Text style={styles.candName} numberOfLines={1}>{item.candidate_name || "Anonymous"}</Text>
+                    <TouchableOpacity onPress={() => handleShareCandidate(item, positionName)} style={styles.candShareBtn}>
+                        <Ionicons name="share-outline" size={16} color={UNIVERSITY_RED} />
+                    </TouchableOpacity>
+                </View>
                 <Text style={styles.candPosition}>{positionName.toUpperCase()}</Text>
             </View>
             <View style={styles.voteBox}>
@@ -321,12 +339,11 @@ const ResultsScreen = () => {
     <View style={styles.emptyContainer}>
         <MaterialCommunityIcons name="account-search-outline" size={60} color="#E5E7EB" />
         <Text style={styles.emptyTitle}>No Results Found</Text>
-        <Text style={styles.emptySubtitle}>Try adjusting your search or filters to find candidates.</Text>
         <TouchableOpacity 
             style={styles.resetBtn} 
             onPress={() => {setSearchQuery(''); setSelectedPositionId(null);}}
         >
-            <Text style={styles.resetBtnText}>Clear All Filters</Text>
+            <Text style={styles.resetBtnText}>Reset Filter</Text>
         </TouchableOpacity>
     </View>
   );
@@ -335,14 +352,14 @@ const ResultsScreen = () => {
     return (
         <View style={styles.loader}>
             <ActivityIndicator size="large" color={UNIVERSITY_RED} />
-            <Text style={styles.loaderText}>CALCULATING TALLIES...</Text>
+            <Text style={styles.loaderText}>SYNCING LEDGER...</Text>
         </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['bottom', 'left', 'right']}>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+      <StatusBar style="dark" />
       <FlatList
         data={filteredResults}
         ListHeaderComponent={renderHeader}
@@ -361,7 +378,17 @@ const ResultsScreen = () => {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#fff" },
   headerWrapper: { backgroundColor: "#F9FAFB" },
-  topHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10, backgroundColor: '#fff', paddingBottom: 15, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  topHeader: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingHorizontal: 20, 
+    paddingTop: 10, 
+    backgroundColor: '#fff', 
+    paddingBottom: 15, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#F1F5F9' 
+  },
   headerLeft: { flexDirection: 'row', alignItems: 'center' },
   headerRightGroup: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   shareBtn: { padding: 8, backgroundColor: '#F9FAFB', borderRadius: 10, borderWidth: 1, borderColor: '#E5E7EB' },
@@ -373,7 +400,7 @@ const styles = StyleSheet.create({
   liveText: { fontSize: 10, fontWeight: '900', color: UNIVERSITY_RED },
 
   container: { padding: 20 },
-  electionInfoCard: { backgroundColor: '#fff', borderRadius: 24, padding: 20, marginBottom: 20, elevation: 4, shadowColor: '#000', shadowOpacity: 0.05 },
+  electionInfoCard: { backgroundColor: '#fff', borderRadius: 24, padding: 20, marginBottom: 20, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowOffset: { width: 0, height: 2 } },
   electionTitle: { fontSize: 24, fontWeight: '900', color: '#111', marginBottom: 20 },
   participationTracker: { marginTop: 10 },
   trackerHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
@@ -389,15 +416,17 @@ const styles = StyleSheet.create({
   trustLabel: { fontSize: 12, color: '#fff', fontWeight: '800' },
   trustDesc: { fontSize: 10, color: '#9CA3AF', marginTop: 2 },
 
-  sectionTitle: { fontSize: 18, fontWeight: "900", color: "#111", marginBottom: 15 },
+  sectionTitle: { fontSize: 18, fontWeight: "900", color: "#111" },
   filterSection: { marginBottom: 25 },
+  filterHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+  shareStatsText: { fontSize: 12, fontWeight: '800', color: UNIVERSITY_RED },
   chipScroll: { paddingBottom: 5 },
   chip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, backgroundColor: '#fff', marginRight: 10, borderWidth: 1, borderColor: '#E5E7EB' },
   activeChip: { backgroundColor: '#111', borderColor: '#111' },
   chipText: { fontSize: 12, fontWeight: '700', color: '#6B7280' },
   activeChipText: { color: '#fff' },
 
-  chartCard: { backgroundColor: '#fff', padding: 20, borderRadius: 24, marginBottom: 25, alignItems: 'center', elevation: 2 },
+  chartCard: { backgroundColor: '#fff', padding: 20, borderRadius: 24, marginBottom: 25, alignItems: 'center', elevation: 1 },
   chartTitle: { fontSize: 14, fontWeight: '900', color: '#111', alignSelf: 'flex-start', marginBottom: 10 },
 
   leaderboardHeader: { marginBottom: 15 },
@@ -405,7 +434,7 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, marginLeft: 10, fontSize: 14, color: '#111' },
 
   footerContainer: { paddingHorizontal: 20, paddingBottom: 40, marginTop: 10 },
-  verifySection: { backgroundColor: '#fff', borderRadius: 24, padding: 20, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, borderTopWidth: 4, borderTopColor: UNIVERSITY_RED },
+  verifySection: { backgroundColor: '#fff', borderRadius: 24, padding: 20, elevation: 1, borderTopWidth: 4, borderTopColor: UNIVERSITY_RED },
   verifyHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   verifyTitle: { fontSize: 16, fontWeight: '900', color: '#111', marginLeft: 8 },
   verifyDesc: { fontSize: 11, color: '#6B7280', marginBottom: 15, lineHeight: 16 },
@@ -413,7 +442,6 @@ const styles = StyleSheet.create({
   verifyInput: { flex: 1, backgroundColor: '#F9FAFB', borderRadius: 12, paddingHorizontal: 15, height: 45, borderWidth: 1, borderColor: '#E5E7EB', fontSize: 12 },
   pasteBtn: { backgroundColor: '#FEF2F2', width: 45, height: 45, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: UNIVERSITY_RED + '40' },
   verifyBtn: { backgroundColor: '#111', width: 45, height: 45, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  auditNote: { fontSize: 10, color: '#9CA3AF', marginTop: 12, fontStyle: 'italic' },
   endPadding: { height: 20 },
 
   listContent: { paddingBottom: 20, backgroundColor: '#F9FAFB' },
@@ -424,9 +452,11 @@ const styles = StyleSheet.create({
   winnerBadge: { backgroundColor: UNIVERSITY_RED },
   rankText: { fontSize: 14, fontWeight: '900', color: '#9CA3AF' },
   candInfo: { flex: 1 },
-  candName: { fontSize: 15, fontWeight: '800', color: '#111' },
+  nameShareRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  candName: { fontSize: 15, fontWeight: '800', color: '#111', maxWidth: '85%' },
+  candShareBtn: { padding: 4 },
   candPosition: { fontSize: 9, color: '#9CA3AF', fontWeight: '900', marginTop: 2 },
-  voteBox: { alignItems: 'flex-end' },
+  voteBox: { alignItems: 'flex-end', minWidth: 60 },
   voteCount: { fontSize: 18, fontWeight: '900', color: '#111' },
   votePercent: { fontSize: 10, fontWeight: '700', color: '#9CA3AF' },
   candProgressBase: { height: 4, backgroundColor: '#F3F4F6', borderRadius: 2, marginTop: 15, overflow: 'hidden' },
@@ -434,7 +464,6 @@ const styles = StyleSheet.create({
 
   emptyContainer: { alignItems: 'center', justifyContent: 'center', padding: 40, marginTop: 20 },
   emptyTitle: { fontSize: 18, fontWeight: '900', color: '#111', marginTop: 15 },
-  emptySubtitle: { fontSize: 13, color: '#6B7280', textAlign: 'center', marginTop: 8, lineHeight: 20 },
   resetBtn: { marginTop: 20, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F3F4F6' },
   resetBtnText: { fontSize: 12, fontWeight: '800', color: UNIVERSITY_RED },
 
