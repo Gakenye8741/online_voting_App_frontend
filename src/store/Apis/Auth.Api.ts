@@ -5,16 +5,11 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 export interface RegisterRequest {
   reg_no: string;
   password?: string;
-  role?: "voter" | "admin";
+  role?: string; 
 }
 
 export interface LoginRequest {
   reg_no: string;
-  password: string;
-  secret_code?: string;
-}
-
-export interface UpdatePasswordRequest {
   password: string;
 }
 
@@ -34,10 +29,16 @@ export interface SetSecretCodeRequest {
   secret_code: string;
 }
 
+// Added token to the mutation requests as an optional override
+export interface AuthenticatedMutation {
+  reg_no: string;
+  token?: string; // Optional manual token override
+}
+
 export interface AuthResponse {
   message?: string;
   token?: string;
-  user: any;
+  user?: any;
   requireSecretCode?: boolean;
   requireProfileCompletion?: boolean;
 }
@@ -52,10 +53,10 @@ export const authApi = createApi({
   baseQuery: fetchBaseQuery({
     baseUrl: "https://online-voting-system-oq4p.onrender.com/api/auth/",
     prepareHeaders: async (headers, { getState }) => {
-      // First try Redux state
-      let token = (getState() as any).auth.token;
+      // 1. Try Redux State first
+      let token = (getState() as any).auth?.token;
 
-      // If no token in state, try AsyncStorage (useful for app reloads)
+      // 2. Fallback to AsyncStorage (Critical for app reloads)
       if (!token) {
         token = await AsyncStorage.getItem("token");
       }
@@ -63,12 +64,13 @@ export const authApi = createApi({
       if (token) {
         headers.set("Authorization", `Bearer ${token}`);
       }
-
-      headers.set("Content-Type", "application/json");
+      
+      // Ensure we always request JSON
+      headers.set("Accept", "application/json");
       return headers;
     },
   }),
-  tagTypes: ["Auth"],
+  tagTypes: ["User"],
   endpoints: (builder) => ({
     register: builder.mutation<AuthResponse, RegisterRequest>({
       query: (payload) => ({
@@ -77,49 +79,62 @@ export const authApi = createApi({
         body: payload,
       }),
     }),
+
     login: builder.mutation<AuthResponse, LoginRequest>({
       query: (payload) => ({
         url: "login",
         method: "POST",
         body: payload,
       }),
+      invalidatesTags: ["User"],
     }),
-    updatePassword: builder.mutation<AuthResponse, { reg_no: string; password: string }>({
-      query: ({ reg_no, password }) => ({
+
+    // Added token override logic to secret code
+    setSecretCode: builder.mutation<AuthResponse, SetSecretCodeRequest & { token?: string }>({
+      query: ({ secret_code, token }) => ({
+        url: "set-secret-code",
+        method: "PUT",
+        body: { secret_code },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      }),
+    }),
+
+    // Logic: Pass reg_no as query param. Added token override to fix 401 errors.
+    completeProfile: builder.mutation<AuthResponse, AuthenticatedMutation & CompleteProfileRequest>({
+      query: ({ reg_no, token, ...profileData }) => ({
+        url: `complete-profile?reg_no=${encodeURIComponent(reg_no)}`,
+        method: "PUT",
+        body: profileData,
+        // If token is passed manually, it overrides the prepareHeaders version
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      }),
+      invalidatesTags: ["User"],
+    }),
+
+    updatePassword: builder.mutation<AuthResponse, { reg_no: string; password: string; token?: string }>({
+      query: ({ reg_no, password, token }) => ({
         url: `update-password?reg_no=${encodeURIComponent(reg_no)}`,
         method: "PUT",
         body: { password },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       }),
     }),
-    completeProfile: builder.mutation<AuthResponse, { reg_no: string } & CompleteProfileRequest>({
-      query: ({ reg_no, ...data }) => ({
-        url: `complete-profile?reg_no=${encodeURIComponent(reg_no)}`,
-        method: "PUT",
-        body: data,
-      }),
-    }),
-    setSecretCode: builder.mutation<AuthResponse, SetSecretCodeRequest>({
-      query: (payload) => ({
-        url: "set-secret-code",
-        method: "PUT",
-        body: payload,
-      }),
-    }),
-    getUserByRegNo: builder.query<UserResponse, { reg_no: string }>({
-      query: ({ reg_no }) => ({
+
+    getUserByRegNo: builder.query<UserResponse, string>({
+      query: (reg_no) => ({
         url: `user/by-reg-no?reg_no=${encodeURIComponent(reg_no)}`,
         method: "GET",
       }),
+      providesTags: ["User"],
     }),
   }),
 });
 
-// -------------------- HOOKS --------------------
 export const {
   useRegisterMutation,
   useLoginMutation,
-  useUpdatePasswordMutation,
-  useCompleteProfileMutation,
   useSetSecretCodeMutation,
+  useCompleteProfileMutation,
+  useUpdatePasswordMutation,
   useGetUserByRegNoQuery,
 } = authApi;

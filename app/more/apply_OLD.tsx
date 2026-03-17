@@ -66,68 +66,58 @@ export default function ApplicationPage() {
   const { data: myApplications, refetch: refetchApplications } = useGetApplicationsByStudentQuery();
 
   // ---------- Image Picker ----------
-// ---------- Image Picker ----------
-const pickImage = async () => {
-  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (status !== "granted") {
-    Alert.alert("Permission Denied", "Permissions needed to upload photo.");
-    return;
-  }
-
-const result = await ImagePicker.launchImageLibraryAsync({
-  mediaTypes: ["images"],
-  allowsEditing: true,
-  aspect: [1, 1],
-  quality: 0.7,
-});
-
-  if (!result.canceled) {
-    setImage(result.assets[0].uri);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }
-};
-
-// ---------- Cloudinary Upload (Optimized for Android + Web) ----------
-const uploadToCloudinary = async () => {
-  if (!image) throw new Error("Please select an image first");
-
-  const formData = new FormData();
-
-  const fileExt = image.split(".").pop();
-
-  const file: any = {
-    uri: image,
-    name: `photo.${fileExt}`,
-    type: `image/${fileExt}`,
-  };
-
-  formData.append("file", file);
-  formData.append("upload_preset", PRESET_KEY);
-
-  try {
-    const response = await fetch(
-      `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
-      {
-        method: "POST",
-        body: formData,
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.log("Cloudinary error:", data);
-      throw new Error("Upload failed");
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Denied', 'Permissions needed to upload photo.');
+      return;
     }
 
-    return data.secure_url;
-  } catch (error: any) {
-    console.log("Cloudinary Error:", error);
-    throw new Error(
-      "Image upload failed. Ensure your preset is unsigned."
-    );
-  }
-};
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+      base64: false, // Set to false to prevent Network Errors on Android
+    });
+
+    if (!result.canceled) {
+      setImage(result.assets[0].uri);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  };
+
+  // ---------- Cloudinary Upload (Optimized for Android) ----------
+  const uploadToCloudinary = async () => {
+    if (!image) throw new Error("Please select an image first");
+
+    const formData = new FormData();
+    const uriParts = image.split('.');
+    const fileType = uriParts[uriParts.length - 1];
+
+    // Create file object for FormData
+    // @ts-ignore
+    formData.append('file', {
+      uri: Platform.OS === 'android' ? image : image.replace('file://', ''),
+      name: `photo.${fileType}`,
+      type: `image/${fileType}`,
+    });
+    
+    formData.append('upload_preset', PRESET_KEY);
+
+    try {
+      const response = await axios.post(
+        `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+      return response.data.secure_url;
+    } catch (error: any) {
+      console.error("Cloudinary Error:", error.response?.data || error.message);
+      throw new Error("Image upload failed. Ensure your preset is 'Unsigned' in Cloudinary.");
+    }
+  };
+
   useEffect(() => {
     const fetchUser = async () => {
       try {

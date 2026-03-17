@@ -13,7 +13,9 @@ import {
   Modal,
   Animated,
   Easing,
+  // Alert removed in favor of Toast
 } from "react-native";
+import { StatusBar } from "expo-status-bar"; 
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Animatable from "react-native-animatable";
@@ -27,18 +29,54 @@ import {
 
 import {
   useGetCandidatesByElectionQuery,
-  useGetCandidatesByNameQuery,
-  useGetCandidatesByPositionQuery,
-  useGetCandidatesBySchoolQuery,
   Candidate,
 } from "@/src/store/Apis/Candidates.Api";
 
+import { useGetUsersCountQuery } from "@/src/store/Apis/User.Api";
+import { useGetElectionResultsQuery } from "@/src/store/Apis/Voting.Api";
+
+// --- CUSTOM TOAST COMPONENT ---
+const Toast = ({ visible, message, type = "success" }: { visible: boolean; message: string; type?: "success" | "error" }) => {
+  const slideAnim = useRef(new Animated.Value(-100)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.spring(slideAnim, {
+        toValue: 20,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 8,
+      }).start();
+    } else {
+      Animated.timing(slideAnim, {
+        toValue: -100,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [visible]);
+
+  return (
+    <Animated.View style={[styles.toastContainer, { transform: [{ translateY: slideAnim }] }]}>
+      <View style={[styles.toastContent, type === "error" && { borderLeftColor: "#ef4444" }]}>
+        <Ionicons 
+          name={type === "success" ? "checkmark-circle" : "alert-circle"} 
+          size={20} 
+          color={type === "success" ? "#c8102e" : "#ef4444"} 
+        />
+        <Text style={styles.toastText}>{message}</Text>
+      </View>
+    </Animated.View>
+  );
+};
+
 // --- QUICK STATS COMPONENT ---
-const QuickStats = ({ candidateCount, positionCount, daysLeft }: { candidateCount: number, positionCount: number, daysLeft: number }) => {
+// Modified to show both Days and Remaining Elections
+const QuickStats = ({ candidateCount, positionCount, daysLeft, remainingElections }: { candidateCount: number, positionCount: number, daysLeft: number, remainingElections: number }) => {
   const stats = [
     { label: "Candidates", value: candidateCount, icon: "people-circle" },
     { label: "Positions", value: positionCount, icon: "list" },
-    { label: "Days Left", value: daysLeft > 0 ? daysLeft : 0, icon: "time" },
+    { label: `Days (${remainingElections} left)`, value: daysLeft > 0 ? daysLeft : 0, icon: "time" },
   ];
 
   return (
@@ -87,7 +125,6 @@ const ElectionFAQ = () => {
 const Announcements = () => {
   const news = [
     "🗳️ Online voting is officially open! Cast your vote from anywhere. 🛡️ Blockchain Security: All votes are being recorded on the Sepolia Testnet.",
-    "",
   ];
 
   const scrollX = useRef(new Animated.Value(0)).current;
@@ -142,6 +179,7 @@ const ParticipationTracker = ({ totalVotes, totalVoters }: { totalVotes: number;
           style={[styles.progressFill, { width: `${percentage}%` }]} 
         />
       </View>
+      <Text style={styles.voteCountSubtext}>{totalVotes.toLocaleString()} votes cast out of {totalVoters.toLocaleString()} registered</Text>
     </View>
   );
 };
@@ -202,7 +240,6 @@ const CountdownTimer = ({ targetDate, label }: { targetDate: string; label: stri
 
   if (isPast) return null;
 
-  // Helper to render each time unit
   const TimeUnit = ({ value, label }: { value: number; label: string }) => (
     <View style={styles.timeUnitContainer}>
       <View style={styles.timeCard}>
@@ -228,7 +265,6 @@ const CountdownTimer = ({ targetDate, label }: { targetDate: string; label: stri
   );
 };
 
-
 interface User {
   name: string;
   school: string;
@@ -246,11 +282,12 @@ export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
-  const [positionFilter, setPositionFilter] = useState<string | null>(null);
-  const [schoolFilter, setSchoolFilter] = useState<string | null>(null);
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [positionsMap, setPositionsMap] = useState<Record<string, string>>({});
+  
+  // Toast State
+  const [toastVisible, setToastVisible] = useState(false);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -300,34 +337,55 @@ export default function Home() {
     fetchPositions();
   }, []);
 
-  const { data: electionsData, refetch: refetchElections, isLoading: isLoadingElections, error: electionsError } = useGetAllElectionsQuery();
+  const { data: electionsData, refetch: refetchElections, isLoading: isLoadingElections } = useGetAllElectionsQuery();
+  const { data: userCountData, refetch: refetchUserCount } = useGetUsersCountQuery();
 
-  const latestElection: Election | undefined = electionsData?.elections
-    ? [...electionsData.elections].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
-    : undefined;
+  const sortedElections = useMemo(() => {
+    return electionsData?.elections 
+      ? [...electionsData.elections].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      : [];
+  }, [electionsData]);
 
+  const latestElection = sortedElections[0];
   const latestElectionId = latestElection?.id || "";
   const roadmapStatus = latestElection?.status ?? "upcoming";
 
+  // Logic for counting future/remaining elections
+  const remainingElectionsCount = useMemo(() => {
+    const now = new Date().getTime();
+    return sortedElections.filter(e => new Date(e.start_date).getTime() > now).length;
+  }, [sortedElections]);
+
   const { data: allCandidatesData, isLoading: isLoadingAll } = useGetCandidatesByElectionQuery(latestElectionId, { skip: !latestElectionId });
-  
+  const { data: resultsData, refetch: refetchResults, isLoading: isLoadingResults } = useGetElectionResultsQuery(latestElectionId, { skip: !latestElectionId });
+
+  const { totalVotes, turnoutPercentage } = useMemo(() => {
+    const rawResults = (resultsData?.data || []) as any[];
+    const total = rawResults.reduce((acc, curr) => acc + Number(curr.votes_count || 0), 0);
+    const registered = userCountData?.count || 0;
+    const turnout = registered > 0 ? (total / registered) * 100 : 0;
+    return { totalVotes: total, turnoutPercentage: turnout };
+  }, [resultsData, userCountData]);
+
   const candidates = useMemo(() => {
     let list = allCandidatesData?.candidates || [];
     if (search) {
       list = list.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
     }
-    if (positionFilter) {
-      list = list.filter(c => positionsMap[c.position_id]?.toLowerCase().includes(positionFilter.toLowerCase()));
-    }
-    if (schoolFilter) {
-      list = list.filter(c => (c as any).school?.toLowerCase().includes(schoolFilter.toLowerCase()));
-    }
     return list;
-  }, [allCandidatesData, search, positionFilter, schoolFilter, positionsMap]);
+  }, [allCandidatesData, search]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    try { await refetchElections(); } finally { setRefreshing(false); }
+    try { 
+      await Promise.all([refetchElections(), refetchUserCount(), refetchResults()]);
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 3000); 
+    } catch(e) {
+      console.error(e);
+    } finally { 
+      setRefreshing(false); 
+    }
   };
 
   const getInitials = (name: string) => {
@@ -346,7 +404,11 @@ export default function Home() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <StatusBar style="dark" />
+      
+      <Toast visible={toastVisible} message="Content refreshed successfully" />
+
       <View style={styles.topHeader}>
         <Animatable.View animation="fadeInLeft" style={styles.headerLeft}>
           <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.logo} />
@@ -369,7 +431,6 @@ export default function Home() {
         contentContainerStyle={styles.container}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#c8102e"]} />}
       >
-        {/* --- ELECTION MOTTO --- */}
         <Animatable.View animation="fadeIn" duration={1000} style={styles.mottoSection}>
             <Text style={styles.mottoText}>Empowering Students Through Transparent Tech.</Text>
         </Animatable.View>
@@ -383,6 +444,7 @@ export default function Home() {
            candidateCount={allCandidatesData?.candidates?.length || 0} 
            positionCount={Object.keys(positionsMap).length}
            daysLeft={latestElection ? getDaysDiff(latestElection.start_date) : 0}
+           remainingElections={remainingElectionsCount}
         />
 
         <Animatable.View animation="fadeInUp" duration={1000} style={styles.electionCard}>
@@ -393,7 +455,7 @@ export default function Home() {
              )}
           </View>
           
-          {isLoadingElections ? (
+          {isLoadingElections || isLoadingResults ? (
             <ActivityIndicator size="small" color="#c8102e" />
           ) : latestElection ? (
             <>
@@ -404,12 +466,16 @@ export default function Home() {
               ) : (
                 <View style={styles.endedTag}><Text style={styles.statusEnded}>Election Closed</Text></View>
               )}
-              {latestElection.status === 'ongoing' && <ParticipationTracker totalVotes={650} totalVoters={1200} />}
+              {latestElection.status === 'ongoing' && (
+                <ParticipationTracker 
+                  totalVotes={totalVotes} 
+                  totalVoters={userCountData?.count || 0} 
+                />
+              )}
             </>
           ) : null}
         </Animatable.View>
 
-        {/* --- BLOCKCHAIN TRUST CARD (Replacing Polling Station) --- */}
         <View style={styles.trustCard}>
            <View style={styles.trustIconBg}><Ionicons name="shield-checkmark" size={24} color="#fff" /></View>
            <View style={styles.trustTextContent}>
@@ -464,29 +530,27 @@ export default function Home() {
               />}
         </View>
 
-        {/* <Announcements /> */}
-        
         <ElectionFAQ />
 
         <Modal visible={modalVisible} transparent animationType="fade">
           <View style={styles.modalOverlay}>
             <Animatable.View animation="zoomIn" duration={300} style={styles.modalCard}>
               {selectedCandidate && <>
-                <View style={styles.modalHeader}>
-                   <View style={{ flex: 1 }}>
+                <div style={styles.modalHeader}>
+                   <div style={{ flex: 1 }}>
                       <Text style={styles.modalName}>{selectedCandidate.name}</Text>
                       <Text style={styles.modalPosition}>{positionsMap[selectedCandidate.position_id] || "Position"}</Text>
-                   </View>
+                   </div>
                    <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeModalBtn}>
                       <Ionicons name="close" size={24} color="#333" />
                    </TouchableOpacity>
-                </View>
-                <View style={styles.manifestoContainer}>
+                </div>
+                <div style={styles.manifestoContainer}>
                    <Text style={styles.manifestoTitle}>My Manifesto Preview</Text>
                    <Text style={styles.modalManifesto} numberOfLines={4}>
                       {selectedCandidate.manifesto || "The candidate has not provided a manifesto yet."}
                    </Text>
-                </View>
+                </div>
               </>}
               <TouchableOpacity 
                 style={styles.closeButton} 
@@ -505,7 +569,40 @@ export default function Home() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#F9FAFB" },
+  // New Toast Styles
+  toastContainer: {
+    position: 'absolute',
+    top: 50, 
+    left: 20,
+    right: 20,
+    zIndex: 9999,
+    alignItems: 'center',
+  },
+  toastContent: {
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#c8102e',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    width: '100%',
+  },
+  toastText: {
+    color: '#111',
+    fontSize: 14,
+    fontWeight: '700',
+    marginLeft: 10,
+  },
+  
+  // Existing Styles
+  safeArea: { flex: 1, backgroundColor: "#fff" },
   topHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10, backgroundColor: '#fff', paddingBottom: 15 },
   headerLeft: { flexDirection: 'row', alignItems: 'center' },
   logo: { width: 45, height: 45, marginRight: 12, borderRadius: 12 },
@@ -514,7 +611,7 @@ const styles = StyleSheet.create({
   notifBell: { padding: 10, backgroundColor: '#FEF2F2', borderRadius: 12 },
   bellDot: { position: 'absolute', top: 12, right: 12, width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444', borderWidth: 2, borderColor: '#fff' },
   
-  container: { padding: 20, flexGrow: 1 },
+  container: { padding: 20, flexGrow: 1, backgroundColor: "#F9FAFB" },
   mottoSection: { marginBottom: 15, paddingHorizontal: 5 },
   mottoText: { fontSize: 13, fontStyle: 'italic', color: '#666', fontWeight: '600' },
   statsStrip: { flexDirection: 'row', gap: 10, marginBottom: 15 },
@@ -592,10 +689,7 @@ const styles = StyleSheet.create({
     marginTop: -20,
   },
 
-  countdownBox: { backgroundColor: "#c8102e", borderRadius: 16, padding: 15, marginBottom: 15, alignItems: "center" },
-  countdownLabel: { color: "rgba(255,255,255,0.8)", fontSize: 10, fontWeight: "800", textTransform: 'uppercase', letterSpacing: 1 },
   timerRow: { flexDirection: "row", alignItems: "center", marginTop: 4, justifyContent: "center" },
-  timerText: { color: "#fff", fontSize: 22, fontWeight: "900" },
   endedTag: { backgroundColor: '#F3F4F6', padding: 10, borderRadius: 12, alignItems: 'center' },
   statusEnded: { color: "#999", fontSize: 14, fontWeight: "800" },
   
@@ -605,6 +699,7 @@ const styles = StyleSheet.create({
   trackerPercent: { fontSize: 14, fontWeight: '900', color: '#c8102e' },
   progressBackground: { height: 10, backgroundColor: '#F3F4F6', borderRadius: 10, overflow: 'hidden' },
   progressFill: { height: '100%', backgroundColor: '#c8102e', borderRadius: 10 },
+  voteCountSubtext: { fontSize: 10, color: '#9CA3AF', marginTop: 6, textAlign: 'center', fontWeight: '600' },
 
   roadmapContainer: { marginBottom: 30, backgroundColor: '#fff', padding: 20, borderRadius: 24, elevation: 2 },
   roadmapTitle: { fontSize: 16, fontWeight: "900", color: "#111", marginBottom: 20 },
@@ -654,11 +749,11 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
   modalName: { fontSize: 24, fontWeight: "900", color: "#111" },
   modalPosition: { fontSize: 14, color: "#c8102e", fontWeight: '800', marginTop: 2 },
-  closeModalBtn: { padding: 5, backgroundColor: '#F3F4F6', borderRadius: 10 },
-  manifestoContainer: { backgroundColor: '#F9FAFB', borderRadius: 20, padding: 20, marginVertical: 10 },
-  manifestoTitle: { fontSize: 12, fontWeight: '900', color: '#9CA3AF', textTransform: 'uppercase', marginBottom: 10, letterSpacing: 1 },
+  closeModalBtn: { padding: 5, backgroundColor: '#f3f4f6', borderRadius: 10 },
+  manifestoContainer: { marginVertical: 20, padding: 15, backgroundColor: '#f9fafb', borderRadius: 20, borderWidth: 1, borderColor: '#eee' },
+  manifestoTitle: { fontSize: 12, fontWeight: '900', color: '#9ca3af', textTransform: 'uppercase', marginBottom: 10, letterSpacing: 1 },
   modalManifesto: { fontSize: 15, color: "#4B5563", lineHeight: 24, fontWeight: '500' },
-  closeButton: { backgroundColor: "#111", padding: 18, borderRadius: 18, alignItems: "center", marginTop: 15 },
-  closeButtonText: { color: "#fff", fontWeight: "900", fontSize: 16 },
-  footerSpace: { height: 40 },
+  closeButton: { backgroundColor: "#111", borderRadius: 18, paddingVertical: 16, alignItems: "center", marginTop: 10, elevation: 4 },
+  closeButtonText: { color: "#fff", fontSize: 14, fontWeight: "900", textTransform: 'uppercase', letterSpacing: 1 },
+  footerSpace: { height: 40 }
 });

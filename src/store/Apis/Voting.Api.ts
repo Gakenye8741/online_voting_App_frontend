@@ -8,37 +8,41 @@ export interface VoteRequest {
   position_id: string;
 }
 
+export interface VoteRecord {
+  id: string;
+  voter_id: string;
+  candidate_id: string;
+  position_id: string;
+  election_id: string;
+  transaction_hash?: string; // Anchored to Sepolia Blockchain
+  createdAt: string;
+}
+
 export interface VoteResponse {
   message: string;
-  vote: {
-    id: string;
-    voter_id: string;
-    candidate_id: string;
-    position_id: string;
-    election_id: string;
-    transaction_hash?: string; // Anchored to Sepolia Blockchain
-    createdAt: string;
-  };
+  vote: VoteRecord;
+}
+
+export interface BulkVoteResponse {
+  message: string;
+  votes: VoteRecord[];
 }
 
 export interface ElectionResult {
   candidate_id: string;
-  candidate_name: string;
+  candidate_name: string | null;
   position_id: string;
-  vote_count: number;
+  votes_count: number | string; // SQL counts often return as strings
 }
 
 // -------------------- API --------------------
 export const votesApi = createApi({
   reducerPath: "votesApi",
   baseQuery: fetchBaseQuery({
-    // Base URL points to the votes endpoint group
     baseUrl: "https://online-voting-system-oq4p.onrender.com/api/votes",
     prepareHeaders: async (headers, { getState }) => {
-      // 1. Try to get token from Redux state
       let token = (getState() as any).auth.token;
 
-      // 2. Fallback to AsyncStorage if Redux state is not yet hydrated
       if (!token) {
         token = await AsyncStorage.getItem("token");
       }
@@ -51,22 +55,40 @@ export const votesApi = createApi({
       return headers;
     },
   }),
-  tagTypes: ["Votes", "Results"],
+  tagTypes: ["Votes", "Results", "MyHistory"],
   endpoints: (builder) => ({
     
-    // 1. Cast a Vote (POST /api/votes/cast)
-    // Handles Validation -> Blockchain Anchor -> Database
+    // 1. Cast a Single Vote
     castVote: builder.mutation<VoteResponse, VoteRequest>({
       query: (voteData) => ({
         url: "/cast",
         method: "POST",
         body: voteData,
       }),
-      // Invalidate results so leaderboards refresh after a vote
-      invalidatesTags: ["Results"],
+      // Invalidate results and history to trigger UI refresh
+      invalidatesTags: ["Results", "MyHistory"],
     }),
 
-    // 2. Get Live Election Results (GET /api/votes/results/:election_id)
+    // 2. NEW: Cast Bulk Votes (POST /api/votes/cast-bulk)
+    castBulkVotes: builder.mutation<BulkVoteResponse, { votesList: VoteRequest[] }>({
+      query: (body) => ({
+        url: "/cast-bulk",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: ["Results", "MyHistory"],
+    }),
+
+    // 3. NEW: Get My Voting History (GET /api/votes/my-votes/:election_id)
+    getMyVotes: builder.query<{ data: { votes: VoteRecord[], totalCast: number } }, string>({
+      query: (electionId) => ({
+        url: `/my-votes/${electionId}`,
+        method: "GET",
+      }),
+      providesTags: ["MyHistory"],
+    }),
+
+    // 4. Get Live Election Results (GET /api/votes/results/:election_id)
     getElectionResults: builder.query<{ data: ElectionResult[] }, string>({
       query: (electionId) => ({
         url: `/results/${electionId}`,
@@ -75,8 +97,8 @@ export const votesApi = createApi({
       providesTags: ["Results"],
     }),
 
-    // 3. Admin: Candidate Audit (GET /api/votes/audit/candidate/:candidate_id)
-    getCandidateAudit: builder.query<{ data: any[] }, string>({
+    // 5. Admin: Candidate Audit
+    getCandidateAudit: builder.query<{ data: VoteRecord[] }, string>({
       query: (candidateId) => ({
         url: `/audit/candidate/${candidateId}`,
         method: "GET",
@@ -84,8 +106,8 @@ export const votesApi = createApi({
       providesTags: ["Votes"],
     }),
 
-    // 4. Admin: Election Audit (GET /api/votes/audit/election/:election_id)
-    getElectionAudit: builder.query<{ data: any[] }, string>({
+    // 6. Admin: Election Audit
+    getElectionAudit: builder.query<{ data: VoteRecord[] }, string>({
       query: (electionId) => ({
         url: `/audit/election/${electionId}`,
         method: "GET",
@@ -98,6 +120,8 @@ export const votesApi = createApi({
 // -------------------- HOOKS --------------------
 export const {
   useCastVoteMutation,
+  useCastBulkVotesMutation,
+  useGetMyVotesQuery,
   useGetElectionResultsQuery,
   useGetCandidateAuditQuery,
   useGetElectionAuditQuery,

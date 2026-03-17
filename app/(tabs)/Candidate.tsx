@@ -20,7 +20,7 @@ import * as Animatable from "react-native-animatable";
 import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Picker } from "@react-native-picker/picker";
-import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
 import { useGetAllElectionsQuery } from "@/src/store/Apis/Election.Api";
@@ -32,7 +32,37 @@ import {
 } from "@/src/store/Apis/Candidates.Api";
 import { useGetCoalitionsByElectionQuery } from "@/src/store/Apis/Coalition.Api";
 
-// Define the custom order for positions
+// --- REFINED TOAST COMPONENT ---
+const Toast = ({ visible, message }: { visible: boolean; message: string }) => {
+  const slideAnim = useRef(new Animated.Value(-100)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.spring(slideAnim, {
+        toValue: 20,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 8,
+      }).start();
+    } else {
+      Animated.timing(slideAnim, {
+        toValue: -100,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [visible]);
+
+  return (
+    <Animated.View style={[styles.toastContainer, { transform: [{ translateY: slideAnim }] }]}>
+      <View style={styles.toastContent}>
+        <Ionicons name="checkmark-circle" size={20} color="#c8102e" />
+        <Text style={styles.toastText}>{message}</Text>
+      </View>
+    </Animated.View>
+  );
+};
+
 const POSITION_ORDER: Record<string, number> = {
   "President": 1,
   "Deputy President": 2,
@@ -56,11 +86,9 @@ export default function CandidatesScreen() {
   const [zoomVisible, setZoomVisible] = useState(false); 
   const [positionsMap, setPositionsMap] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
 
-  const toastY = useRef(new Animated.Value(-100)).current;
-  const toastOpacity = useRef(new Animated.Value(0)).current;
-
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const numColumns = width < 600 ? 2 : 3;
   const cardWidth = (width - 48) / numColumns;
 
@@ -75,7 +103,6 @@ export default function CandidatesScreen() {
     useGetCandidatesByElectionQuery(latestElectionId, { skip: !latestElectionId });
 
   const { data: coalitionData } = useGetCoalitionsByElectionQuery(latestElectionId, { skip: !latestElectionId });
-
   const { data: searchData } = useGetCandidatesByNameQuery(search, { skip: !search });
   const { data: positionData } = useGetCandidatesByPositionQuery(positionFilter || "", { skip: !positionFilter });
 
@@ -102,7 +129,6 @@ export default function CandidatesScreen() {
 
     filteredCandidates.forEach((candidate) => {
       const posName = positionsMap[candidate.position_id] || "Other Positions";
-
       if (coalitionFilter && candidate.coalition_id && coalitionMap[candidate.coalition_id]) {
         const cName = coalitionMap[candidate.coalition_id].name;
         if (!coalitions[cName]) coalitions[cName] = [];
@@ -113,45 +139,20 @@ export default function CandidatesScreen() {
       }
     });
 
-    // Sort positions based on the defined order
-    const sortedPositions = Object.keys(byPosition).sort((a, b) => {
-      const orderA = POSITION_ORDER[a] || 999;
-      const orderB = POSITION_ORDER[b] || 999;
-      return orderA - orderB;
-    });
-
+    const sortedPositions = Object.keys(byPosition).sort((a, b) => (POSITION_ORDER[a] || 999) - (POSITION_ORDER[b] || 999));
     const sortedByPosition: Record<string, Candidate[]> = {};
-    sortedPositions.forEach(pos => {
-      sortedByPosition[pos] = byPosition[pos];
-    });
+    sortedPositions.forEach(pos => { sortedByPosition[pos] = byPosition[pos]; });
 
     return { coalitions, byPosition: sortedByPosition };
   }, [filteredCandidates, positionsMap, coalitionMap, coalitionFilter]);
 
-  const getInitials = (name: string) => {
-    const words = name.split(" ");
-    return words.length >= 2 ? `${words[0][0]}${words[1][0]}` : name.substring(0, 2);
-  };
-
-  const showToast = () => {
-    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Animated.parallel([
-      Animated.timing(toastY, { toValue: 60, duration: 500, useNativeDriver: true }),
-      Animated.timing(toastOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
-    ]).start();
-    setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(toastY, { toValue: -100, duration: 500, useNativeDriver: true }),
-        Animated.timing(toastOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
-      ]).start();
-    }, 2800);
-  };
-
   const onRefresh = async () => {
     setRefreshing(true);
     try {
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await Promise.all([refetchElections(), refetchCandidates()]);
-      showToast();
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 3000);
     } catch (err) { console.error(err); }
     finally { setRefreshing(false); }
   };
@@ -173,33 +174,36 @@ export default function CandidatesScreen() {
     fetchPositions();
   }, [latestElectionId]);
 
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor="#c8102e" />
+  const getInitials = (name: string) => {
+    const words = name.split(" ");
+    return words.length >= 2 ? `${words[0][0]}${words[1][0]}` : name.substring(0, 2);
+  };
 
-      <Animated.View style={[styles.toastContainer, { opacity: toastOpacity, transform: [{ translateY: toastY }] }]}>
-        <LinearGradient colors={["#2D3436", "#000000"]} style={styles.toastContent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-          <Ionicons name="checkmark-circle" size={18} color="#4CD964" />
-          <Text style={styles.toastText}>Live Updates Synchronized</Text>
-        </LinearGradient>
-      </Animated.View>
+  return (
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle="dark-content" />
+      <Toast visible={toastVisible} message="Content refreshed successfully" />
+
+      {/* --- BALANCED PROFESSIONAL HEADER --- */}
+      <View style={styles.topHeader}>
+        <Animatable.View animation="fadeInLeft" style={styles.headerLeft}>
+          <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.logo} />
+          <View>
+            <Text style={styles.greetingText}>Active Election Portal</Text>
+            <Text style={styles.userNameText}>{latestElection?.name || "Official Ballot"} CANDIDATES</Text>
+          </View>
+        </Animatable.View>
+        <View style={styles.liveBadgeHome}>
+          <View style={styles.liveDot} />
+          <Text style={styles.liveBadgeTextHome}>LIVE</Text>
+        </View>
+      </View>
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#c8102e"]} />}
       >
-        <LinearGradient colors={["#c8102e", "#8e0b20"]} style={styles.headerGradient}>
-          <Animatable.View animation="fadeIn" duration={800} style={styles.headerContent}>
-             <View style={styles.headerTopRow}>
-                <Text style={styles.headerLabel}>Active Election Portal</Text>
-                <View style={styles.liveBadge}><View style={styles.dot}/><Text style={styles.liveText}>LIVE</Text></View>
-             </View>
-             <Text style={styles.headerTitle} numberOfLines={2}>{latestElection?.name || "Official Ballot"}</Text>
-             <Text style={styles.headerSubtitle}>Vetting phase is currently open.</Text>
-          </Animatable.View>
-        </LinearGradient>
-
         <View style={styles.mainContainer}>
           <View style={styles.searchSection}>
             <View style={styles.searchBar}>
@@ -295,7 +299,7 @@ export default function CandidatesScreen() {
                       </Text>
                       <Text style={styles.coalitionSlogan}>{coalitionMap[list[0].coalition_id!]?.slogan}</Text>
                     </View>
-                    <MaterialCommunityIcons name="shield-star" size={32} color={coalitionMap[list[0].coalition_id!]?.color || "#c8102e"} alpha={0.2} />
+                    <MaterialCommunityIcons name="shield-star" size={32} color={coalitionMap[list[0].coalition_id!]?.color || "#c8102e"} />
                   </LinearGradient>
 
                   <View style={styles.grid}>
@@ -318,6 +322,7 @@ export default function CandidatesScreen() {
         </View>
       </ScrollView>
 
+      {/* --- MODAL --- */}
       <Modal visible={modalVisible} transparent animationType="slide" statusBarTranslucent>
         <View style={styles.modalOverlay}>
           <Animatable.View animation="slideInUp" duration={400} style={styles.modalContent}>
@@ -347,14 +352,6 @@ export default function CandidatesScreen() {
                             </View>
                         </TouchableOpacity>
                         
-                        {/* Zoom Hint Text */}
-                        {selectedCandidate.photo_url && (
-                          <Animatable.View animation="pulse" iterationCount="infinite" style={styles.zoomHintContainer}>
-                            <Ionicons name="search-outline" size={12} color="#999" />
-                            <Text style={styles.zoomHintText}>Tap image to zoom</Text>
-                          </Animatable.View>
-                        )}
-                        
                         <Text style={styles.modalTitle}>{selectedCandidate.name}</Text>
                         <View style={styles.modalPositionBadge}>
                             <Text style={styles.modalPositionText}>{positionsMap[selectedCandidate.position_id]}</Text>
@@ -362,39 +359,25 @@ export default function CandidatesScreen() {
                     </View>
 
                     <View style={styles.detailCard}>
-                        <Text style={styles.detailHeading}>Student Information</Text>
-                        <View style={styles.infoGrid}>
-                            <View style={styles.infoItem}>
-                                <Ionicons name="school" size={18} color="#c8102e" />
-                                <View>
-                                    <Text style={styles.infoLabel}>School/Department</Text>
-                                    <Text style={styles.infoValue}>{selectedCandidate.school}</Text>
-                                </View>
-                            </View>
-                            <View style={styles.infoItem}>
-                                <Ionicons name="shield-checkmark" size={18} color="#4CD964" />
-                                <View>
-                                    <Text style={styles.infoLabel}>Verification Status</Text>
-                                    <Text style={[styles.infoValue, {color: '#4CD964'}]}>Verified & Duly Cleared</Text>
-                                </View>
-                            </View>
-                        </View>
-                    </View>
-
-                    {selectedCandidate.coalition_id && coalitionMap[selectedCandidate.coalition_id] && (
-                        <LinearGradient 
-                          colors={[coalitionMap[selectedCandidate.coalition_id].color + '15', 'transparent']} 
-                          style={styles.modalCoalitionCard}
-                        >
-                            <MaterialCommunityIcons name="shield-check" size={24} color={coalitionMap[selectedCandidate.coalition_id].color} />
-                            <View style={{flex: 1}}>
-                                <Text style={[styles.coalitionNameLabel, { color: coalitionMap[selectedCandidate.coalition_id].color }]}>
-                                    {coalitionMap[selectedCandidate.coalition_id].name} Alliance
-                                </Text>
-                                <Text style={styles.coalitionSloganText}>{coalitionMap[selectedCandidate.coalition_id].slogan}</Text>
-                            </View>
-                        </LinearGradient>
-                    )}
+    <Text style={styles.detailHeading}>Student Information</Text>
+    {/* Changed <div> to <View> below */}
+    <View style={styles.infoGrid}> 
+        <View style={styles.infoItem}>
+            <Ionicons name="school" size={18} color="#c8102e" />
+            <View>
+                <Text style={styles.infoLabel}>School/Department</Text>
+                <Text style={styles.infoValue}>{selectedCandidate.school}</Text>
+            </View>
+        </View>
+        <View style={styles.infoItem}>
+            <Ionicons name="shield-checkmark" size={18} color="#4CD964" />
+            <View>
+                <Text style={styles.infoLabel}>Verification Status</Text>
+                <Text style={[styles.infoValue, {color: '#4CD964'}]}>Verified & Duly Cleared</Text>
+            </View>
+        </View>
+    </View> {/* Changed </div> to </View> here too */}
+</View>
 
                     <View style={styles.manifestoSection}>
                         <View style={styles.manifestoHeader}>
@@ -480,21 +463,58 @@ const CandidateCard = ({ candidate, index, cardWidth, positionsMap, onPress, coa
 };
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#f8f9fa" },
+  // --- REFINED HEADER STYLES ---
+  safeArea: { flex: 1, backgroundColor: "#fff" },
+  topHeader: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingHorizontal: 20, 
+    paddingTop: 10, 
+    backgroundColor: '#fff', 
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0' 
+  },
+  headerLeft: { flexDirection: 'row', alignItems: 'center' },
+  logo: { width: 45, height: 45, marginRight: 12, borderRadius: 12 },
+  greetingText: { fontSize: 11, color: "#888", fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  userNameText: { fontSize: 20, fontWeight: "900", color: "#1a1a1a", letterSpacing: -0.5 },
+  liveBadgeHome: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#fff', 
+    paddingHorizontal: 10, 
+    paddingVertical: 5, 
+    borderRadius: 20, 
+    borderWidth: 1, 
+    borderColor: '#eee' 
+  },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#4CD964', marginRight: 6 },
+  liveBadgeTextHome: { color: '#111', fontSize: 10, fontWeight: '800' },
+  
+  // --- REFINED TOAST ---
+  toastContainer: { position: 'absolute', top: 50, left: 20, right: 20, zIndex: 9999, alignItems: 'center' },
+  toastContent: { 
+    backgroundColor: '#fff', 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    paddingVertical: 12, 
+    paddingHorizontal: 16, 
+    borderRadius: 16, 
+    borderLeftWidth: 4, 
+    borderLeftColor: '#c8102e', 
+    elevation: 10, 
+    width: '100%',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 10
+  },
+  toastText: { color: '#111', fontSize: 14, fontWeight: '700', marginLeft: 10 },
+
+  // --- ORIGINAL CARD & BODY STYLES (RETAINED) ---
   scrollContent: { paddingBottom: 30 },
-  mainContainer: { padding: 16, marginTop: -20, borderTopLeftRadius: 25, borderTopRightRadius: 25, backgroundColor: '#f8f9fa' },
-  toastContainer: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 99999, alignItems: 'center' },
-  toastContent: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 25, gap: 8, elevation: 5 },
-  toastText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  headerGradient: { paddingTop: 40, paddingBottom: 50, paddingHorizontal: 20 },
-  headerContent: { alignItems: 'flex-start' },
-  headerTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 8 },
-  headerLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
-  liveBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#4CD964', marginRight: 5 },
-  liveText: { color: '#fff', fontSize: 10, fontWeight: '900' },
-  headerTitle: { fontSize: 28, fontWeight: "900", color: "#fff", lineHeight: 32 },
-  headerSubtitle: { color: 'rgba(255,255,255,0.8)', fontSize: 14, marginTop: 4 },
+  mainContainer: { padding: 16, backgroundColor: '#f8f9fa' },
   searchSection: { marginBottom: 20 },
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 16, paddingHorizontal: 15, height: 50, elevation: 3, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, marginBottom: 12 },
   searchInput: { flex: 1, fontSize: 15, color: '#333' },
@@ -503,6 +523,7 @@ const styles = StyleSheet.create({
   picker: { width: '110%', marginLeft: 15, color: '#444' },
   pickerIcon: { position: 'absolute', left: 8, zIndex: 1 },
   clearBtn: { backgroundColor: '#333', width: 45, height: 45, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
+  
   sectionContainer: { marginBottom: 25 },
   sectionHeader: { marginBottom: 15 },
   sectionTitleBox: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 5 },
@@ -510,10 +531,12 @@ const styles = StyleSheet.create({
   countPill: { backgroundColor: '#c8102e15', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   countPillText: { fontSize: 12, fontWeight: '800', color: '#c8102e' },
   divider: { height: 3, width: 40, backgroundColor: '#c8102e', borderRadius: 2 },
+  
   coalitionHero: { padding: 15, borderRadius: 16, borderLeftWidth: 5, marginBottom: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 },
   coalitionInfo: { flex: 1 },
   coalitionTitle: { fontSize: 18, fontWeight: '900', textTransform: 'uppercase' },
   coalitionSlogan: { fontSize: 12, color: '#777', fontStyle: 'italic', marginTop: 2 },
+  
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   card: { borderRadius: 20, backgroundColor: '#fff', elevation: 4, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 12, marginBottom: 4 },
   cardInner: { padding: 12, alignItems: 'center' },
@@ -530,8 +553,10 @@ const styles = StyleSheet.create({
   coalitionTagText: { fontSize: 9, fontWeight: '800' },
   cardFooter: { flexDirection: 'row', alignItems: 'center', marginTop: 12, borderTopWidth: 1, borderTopColor: '#f5f5f5', paddingTop: 8, width: '100%', justifyContent: 'center' },
   viewProfileText: { fontSize: 10, fontWeight: '700', color: '#999', marginRight: 4 },
+
   loaderContainer: { marginTop: 100, alignItems: 'center' },
   loaderText: { marginTop: 10, color: '#666', fontWeight: '600' },
+  
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
   modalContent: { backgroundColor: "#fff", borderTopLeftRadius: 30, borderTopRightRadius: 30, padding: 24, height: '90%' },
   modalDragHandle: { width: 40, height: 5, backgroundColor: '#eee', borderRadius: 3, alignSelf: 'center', marginBottom: 15 },
@@ -551,19 +576,13 @@ const styles = StyleSheet.create({
   infoItem: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   infoLabel: { fontSize: 11, color: '#999', fontWeight: '600' },
   infoValue: { fontSize: 14, color: '#333', fontWeight: '700' },
-  modalCoalitionCard: { flexDirection: 'row', alignItems: 'center', gap: 15, padding: 15, borderRadius: 18, marginBottom: 15 },
-  coalitionNameLabel: { fontSize: 16, fontWeight: '800' },
-  coalitionSloganText: { fontSize: 12, color: '#666', fontStyle: 'italic' },
-  manifestoSection: { backgroundColor: '#fff', borderRadius: 20, padding: 20, marginBottom: 20, borderLeftWidth: 4, borderLeftColor: '#c8102e', elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 },
+  manifestoSection: { backgroundColor: '#fff', borderRadius: 20, padding: 20, marginBottom: 20, borderLeftWidth: 4, borderLeftColor: '#c8102e', elevation: 2 },
   manifestoHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
   manifestoLabel: { fontSize: 13, fontWeight: '900', color: '#1a1a1a', letterSpacing: 1 },
   manifestoText: { fontSize: 15, color: "#444", lineHeight: 24, fontStyle: 'italic' },
-  voteNavBtn: { backgroundColor: "#c8102e", paddingVertical: 18, borderRadius: 18, alignItems: "center", marginBottom: 20, elevation: 4 },
+  voteNavBtn: { backgroundColor: "#c8102e", paddingVertical: 18, borderRadius: 18, alignItems: "center", marginBottom: 20 },
   voteNavText: { color: "#fff", fontWeight: "900", fontSize: 16 },
   zoomOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },
   zoomImage: { borderRadius: 20 },
   zoomClose: { position: 'absolute', top: 50, right: 30, zIndex: 100 },
-  // New Styles for Hint
-  zoomHintContainer: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 },
-  zoomHintText: { fontSize: 10, color: '#999', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
 });

@@ -6,6 +6,8 @@ interface User {
   name: string;
   role: string;
   school: string | null;
+  email?: string;
+  expected_graduation?: string;
 }
 
 interface AuthState {
@@ -26,11 +28,21 @@ const authSlice = createSlice({
   name: "auth",
   initialState,
   reducers: {
-    setCredentials: (state, action: PayloadAction<AuthState>) => {
-      state.user = action.payload.user;
-      state.token = action.payload.token;
-      state.requireProfileCompletion = action.payload.requireProfileCompletion;
-      state.requireSecretCode = action.payload.requireSecretCode;
+    // Changed to Partial<AuthState> so you can update just the user 
+    // after completing the profile without losing the token.
+    setCredentials: (state, action: PayloadAction<Partial<AuthState>>) => {
+      if (action.payload.user !== undefined) {
+        state.user = action.payload.user;
+      }
+      if (action.payload.token !== undefined) {
+        state.token = action.payload.token;
+      }
+      if (action.payload.requireProfileCompletion !== undefined) {
+        state.requireProfileCompletion = action.payload.requireProfileCompletion;
+      }
+      if (action.payload.requireSecretCode !== undefined) {
+        state.requireSecretCode = action.payload.requireSecretCode;
+      }
     },
     logout: (state) => {
       state.user = null;

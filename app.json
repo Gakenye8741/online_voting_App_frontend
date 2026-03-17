@@ -17,9 +17,14 @@
       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/Laikipia-logo.png",
-        "backgroundColor": "#FFFFFF" 
+        "backgroundColor": "#FFFFFF"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": false,
+      "StatusBar": {
+        "barStyle": "dark-content",
+        "backgroundColor": "#FFFFFF",
+        "translucent": false
+      }
     },
     "web": {
       "output": "static",

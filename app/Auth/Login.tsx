@@ -33,53 +33,47 @@ const LoginScreen: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const formRef = useRef<Animatable.View & View>(null);
 
-const onLogin: SubmitHandler<LoginFormInputs> = async (data) => {
-  try {
-    const res: any = await login(data).unwrap();
+  const onLogin: SubmitHandler<LoginFormInputs> = async (data) => {
+    try {
+      const res: any = await login(data).unwrap();
 
-    const userWithSchool = {
-      ...res.user,
-      school: res.user.school ?? null, // keep null if not set
-    };
+      const userWithSchool = {
+        ...res.user,
+        school: res.user.school ?? null,
+      };
 
-    await AsyncStorage.setItem("token", res.token);
-    await AsyncStorage.setItem("user", JSON.stringify(userWithSchool));
-    await AsyncStorage.setItem(
-      "requireProfileCompletion",
-      res.requireProfileCompletion ? "true" : "false"
-    );
-    await AsyncStorage.setItem(
-      "requireSecretCode",
-      res.requireSecretCode ? "true" : "false"
-    );
+      // 1. Ensure all storage items are set before moving forward
+      await Promise.all([
+        AsyncStorage.setItem("token", res.token),
+        AsyncStorage.setItem("user", JSON.stringify(userWithSchool)),
+        AsyncStorage.setItem("requireProfileCompletion", res.requireProfileCompletion ? "true" : "false"),
+        AsyncStorage.setItem("requireSecretCode", res.requireSecretCode ? "true" : "false"),
+      ]);
 
-    dispatch(
-      setCredentials({
-        user: userWithSchool,
-        token: res.token,
-        requireProfileCompletion: res.requireProfileCompletion,
-        requireSecretCode: res.requireSecretCode,
-      })
-    );
+      // 2. Update Redux state with partial update support
+      dispatch(
+        setCredentials({
+          user: userWithSchool,
+          token: res.token,
+          requireProfileCompletion: !!res.requireProfileCompletion,
+          requireSecretCode: !!res.requireSecretCode,
+        })
+      );
 
-    if (res.requireProfileCompletion) {
-      router.replace("/Auth/complete-profile");
-      return;
+      // 3. Conditional navigation based on flags
+      if (res.requireProfileCompletion) {
+        router.replace("/Auth/complete-profile");
+      } else if (res.requireSecretCode) {
+        router.replace("/Auth/secret-code");
+      } else {
+        router.replace("/(tabs)");
+      }
+    } catch (err: any) {
+      // Improved error message extraction
+      const errorMessage = err.data?.message || err.data?.error || err.message || "Unknown error";
+      Alert.alert("Login failed", errorMessage);
     }
-
-    if (res.requireSecretCode) {
-      router.replace("/Auth/secret-code");
-      return;
-    }
-
-    router.replace("/(tabs)");
-  } catch (err: any) {
-    Alert.alert("Login failed", err.data?.error || err.message || "Unknown error");
-  }
-};
-
-
-
+  };
 
   return (
     <AppLayout>
