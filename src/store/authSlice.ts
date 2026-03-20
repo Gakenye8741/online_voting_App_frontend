@@ -1,8 +1,9 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 
+// Updated to match your backend response keys: userId and regNo
 interface User {
-  id: string;
-  reg_no: string;
+  userId: string;
+  regNo: string;
   name: string;
   role: string;
   school: string | null;
@@ -28,20 +29,25 @@ const authSlice = createSlice({
   name: "auth",
   initialState,
   reducers: {
-    // Changed to Partial<AuthState> so you can update just the user 
-    // after completing the profile without losing the token.
+    /**
+     * Updates authentication state. 
+     * Using Partial allows for updating specific fields (like just the user 
+     * after profile completion) without overwriting the token.
+     */
     setCredentials: (state, action: PayloadAction<Partial<AuthState>>) => {
-      if (action.payload.user !== undefined) {
-        state.user = action.payload.user;
+      const { user, token, requireProfileCompletion, requireSecretCode } = action.payload;
+      
+      if (user !== undefined) {
+        state.user = user;
       }
-      if (action.payload.token !== undefined) {
-        state.token = action.payload.token;
+      if (token !== undefined) {
+        state.token = token;
       }
-      if (action.payload.requireProfileCompletion !== undefined) {
-        state.requireProfileCompletion = action.payload.requireProfileCompletion;
+      if (requireProfileCompletion !== undefined) {
+        state.requireProfileCompletion = requireProfileCompletion;
       }
-      if (action.payload.requireSecretCode !== undefined) {
-        state.requireSecretCode = action.payload.requireSecretCode;
+      if (requireSecretCode !== undefined) {
+        state.requireSecretCode = requireSecretCode;
       }
     },
     logout: (state) => {

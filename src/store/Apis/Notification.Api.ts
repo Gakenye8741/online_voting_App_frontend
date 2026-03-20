@@ -1,9 +1,10 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+// -------------------- TYPES --------------------
 export interface Notification {
   id: string;
-  _id?: string; 
+  _id?: string;
   title: string;
   message: string;
   is_read: boolean;
@@ -16,127 +17,136 @@ export interface Notification {
 interface NotificationsResponse {
   notifications: Notification[];
   success?: boolean;
+  message?: string;
 }
 
-const baseQuery = fetchBaseQuery({
-  baseUrl: "https://online-voting-system-oq4p.onrender.com/api/notifications",
-  prepareHeaders: async (headers) => {
-    try {
-      const token = await AsyncStorage.getItem("token");
-      if (token) {
-        headers.set("Authorization", `Bearer ${token}`);
-      }
-    } catch (error) {
-      console.error("Error fetching token", error);
-    }
-    headers.set("Content-Type", "application/json");
-    return headers;
-  },
-});
-
+// -------------------- API --------------------
 export const notificationApi = createApi({
   reducerPath: "notificationApi",
-  baseQuery,
+  baseQuery: fetchBaseQuery({
+    baseUrl: "https://online-voting-system-oq4p.onrender.com/api/notifications",
+    prepareHeaders: async (headers, { getState }) => {
+      try {
+        // 1. Priority: Get token from Redux state (Instant sync after login)
+        let token = (getState() as any).auth?.token;
+
+        // 2. Fallback: Get token from AsyncStorage (Persistence after app restart)
+        if (!token) {
+          token = await AsyncStorage.getItem("token");
+        }
+
+        if (token) {
+          headers.set("Authorization", `Bearer ${token}`);
+        }
+      } catch (error) {
+        console.error("Notification Auth Header Error:", error);
+      }
+      headers.set("Content-Type", "application/json");
+      headers.set("Accept", "application/json");
+      return headers;
+    },
+  }),
   tagTypes: ["Notifications"],
   endpoints: (builder) => ({
     
     // ==========================================
-    // USER ACTIONS
+    // 📱 DEVICE & PUSH REGISTRATION
     // ==========================================
 
-    /**
-     * REGISTER PUSH TOKEN
-     * PATCH /api/notifications/register-token
-     */
     registerPushToken: builder.mutation<{ message: string }, { userId: string; pushToken: string }>({
       query: (body) => ({
-        url: "/register-token",
+        url: "register-token", // Clean path (no leading slash)
         method: "PATCH",
         body,
       }),
     }),
 
-    // GET /api/notifications/user/:userId
-    getUserNotifications: builder.query<Notification[], string>({
-      query: (userId) => `/user/${userId}`,
-      transformResponse: (response: NotificationsResponse | Notification[]) => 
-        Array.isArray(response) ? response : response.notifications || [],
-      providesTags: ["Notifications"],
-    }),
+    // ==========================================
+    // 👤 USER ACTIONS (STUDENT APP)
+    // ==========================================
 
-    // PUT /api/notifications/mark-read/:id
+    getUserNotifications: builder.query<Notification[], string>({
+  query: (userId) => `user/${userId}`,
+  transformResponse: (response: any) => {
+    // If the backend sends { data: [...] } or { notifications: [...] }
+    if (response?.notifications) return response.notifications;
+    if (response?.data) return response.data;
+    if (Array.isArray(response)) return response;
+    return [];
+  },
+  providesTags: ["Notifications"],
+}),
+
     markAsRead: builder.mutation<any, string>({
       query: (id) => ({
-        url: `/mark-read/${id}`,
+        url: `mark-read/${id}`,
         method: "PUT",
+        body: { is_read: true }
       }),
       invalidatesTags: ["Notifications"],
     }),
 
-    // PUT /api/notifications/mark-all-read/:userId
     markAllRead: builder.mutation<any, string>({
       query: (userId) => ({
-        url: `/mark-all-read/${userId}`,
+        url: `mark-all-read/${userId}`,
         method: "PUT",
       }),
       invalidatesTags: ["Notifications"],
     }),
 
     // ==========================================
-    // ADMIN ACTIONS
+    // 🛡️ ADMIN ACTIONS (DASHBOARD)
     // ==========================================
 
-    // GET /api/notifications/ (Admin)
     getAllNotifications: builder.query<Notification[], void>({
-      query: () => "/",
+      query: () => "",
       transformResponse: (response: NotificationsResponse | Notification[]) => 
         Array.isArray(response) ? response : response.notifications || [],
       providesTags: ["Notifications"],
     }),
 
-    // POST /api/notifications/create
     createNotification: builder.mutation<any, Partial<Notification>>({
       query: (body) => ({
-        url: "/create",
+        url: "create",
         method: "POST",
         body,
       }),
       invalidatesTags: ["Notifications"],
     }),
 
-    // POST /api/notifications/bulk
     sendBulkNotifications: builder.mutation<any, { userIds: string[]; payload: any }>({
       query: (body) => ({
-        url: "/bulk",
+        url: "bulk",
         method: "POST",
         body,
       }),
       invalidatesTags: ["Notifications"],
     }),
 
-    // POST /api/notifications/broadcast
     broadcastNotification: builder.mutation<any, any>({
       query: (body) => ({
-        url: "/broadcast",
+        url: "broadcast",
         method: "POST",
         body,
       }),
       invalidatesTags: ["Notifications"],
     }),
 
-    // DELETE /api/notifications/delete/:id
+    // ==========================================
+    // 🧹 CLEANUP
+    // ==========================================
+
     deleteNotification: builder.mutation<any, string>({
       query: (id) => ({
-        url: `/delete/${id}`,
+        url: `delete/${id}`,
         method: "DELETE",
       }),
       invalidatesTags: ["Notifications"],
     }),
 
-    // DELETE /api/notifications/delete-all/:userId
     deleteAllUserNotifications: builder.mutation<any, string>({
       query: (userId) => ({
-        url: `/delete-all/${userId}`,
+        url: `delete-all/${userId}`,
         method: "DELETE",
       }),
       invalidatesTags: ["Notifications"],
@@ -145,9 +155,9 @@ export const notificationApi = createApi({
 });
 
 export const {
-  useRegisterPushTokenMutation, // Exported for device registration
-  useGetAllNotificationsQuery,
+  useRegisterPushTokenMutation,
   useGetUserNotificationsQuery,
+  useGetAllNotificationsQuery,
   useCreateNotificationMutation,
   useSendBulkNotificationsMutation,
   useBroadcastNotificationMutation,

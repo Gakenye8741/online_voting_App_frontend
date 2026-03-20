@@ -29,9 +29,7 @@ export interface SetSecretCodeRequest {
   secret_code: string;
 }
 
-// Added token to the mutation requests as an optional override
 export interface AuthenticatedMutation {
-  reg_no: string;
   token?: string; // Optional manual token override
 }
 
@@ -56,7 +54,7 @@ export const authApi = createApi({
       // 1. Try Redux State first
       let token = (getState() as any).auth?.token;
 
-      // 2. Fallback to AsyncStorage (Critical for app reloads)
+      // 2. Fallback to AsyncStorage
       if (!token) {
         token = await AsyncStorage.getItem("token");
       }
@@ -65,7 +63,6 @@ export const authApi = createApi({
         headers.set("Authorization", `Bearer ${token}`);
       }
       
-      // Ensure we always request JSON
       headers.set("Accept", "application/json");
       return headers;
     },
@@ -89,34 +86,33 @@ export const authApi = createApi({
       invalidatesTags: ["User"],
     }),
 
-    // Added token override logic to secret code
     setSecretCode: builder.mutation<AuthResponse, SetSecretCodeRequest & { token?: string }>({
       query: ({ secret_code, token }) => ({
         url: "set-secret-code",
         method: "PUT",
         body: { secret_code },
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       }),
     }),
 
-    // Logic: Pass reg_no as query param. Added token override to fix 401 errors.
-    completeProfile: builder.mutation<AuthResponse, AuthenticatedMutation & CompleteProfileRequest>({
-      query: ({ reg_no, token, ...profileData }) => ({
-        url: `complete-profile?reg_no=${encodeURIComponent(reg_no)}`,
+    // FIXED: No reg_no in URL. Backend uses Token.
+    completeProfile: builder.mutation<AuthResponse, CompleteProfileRequest & { token?: string }>({
+      query: ({ token, ...profileData }) => ({
+        url: "complete-profile",
         method: "PUT",
         body: profileData,
-        // If token is passed manually, it overrides the prepareHeaders version
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       }),
       invalidatesTags: ["User"],
     }),
 
+    // KEPT: reg_no required for password updates as per your requirement
     updatePassword: builder.mutation<AuthResponse, { reg_no: string; password: string; token?: string }>({
       query: ({ reg_no, password, token }) => ({
         url: `update-password?reg_no=${encodeURIComponent(reg_no)}`,
         method: "PUT",
         body: { password },
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       }),
     }),
 

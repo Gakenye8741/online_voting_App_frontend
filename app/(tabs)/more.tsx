@@ -60,6 +60,7 @@ export default function MoreScreen() {
       title: "Election Portal",
       items: [
         { title: "Apply for Position", icon: "badge-account-outline", path: "/more/apply", type: 'material' },
+        { title: "Application Progress", icon: "pulse", path: "/more/ApplicationProgress", type: 'material' },
         { title: "Coalition Hub", icon: "account-group-outline", path: "/more/Coalition", type: 'material' },
         { title: "Past Elections", icon: "history", path: "/more/past-elections", type: 'material' },
         { title: "Voting Guidelines", icon: "book-outline", path: "/more/guidlines", type: 'ionicons' },

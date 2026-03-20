@@ -8,7 +8,7 @@ export interface Position {
   name: string;
   description?: string;
   school?: string | null;
-  tier: "university" | "school" | "department";
+  tier: "university" | "school";
   coalition_id?: string | null;
 }
 

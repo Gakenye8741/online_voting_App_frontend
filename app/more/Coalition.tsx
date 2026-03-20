@@ -37,7 +37,7 @@ const BORDER_COLOR = "#E0E0E0";
 
 export default function CandidateDetailPage() {
   const navigation = useNavigation();
-  const userId = useSelector((state: RootState) => state.auth.user?.id);
+  const userId = useSelector((state: RootState) => state.auth.user?.userId);
 
   // Modal States
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -52,11 +52,13 @@ export default function CandidateDetailPage() {
     description: "",
   });
 
-  // 1. Fetch Candidate Data
+  // 1. Fetch Candidate Data - Ensuring userId is present
   const { data, isLoading, isError, refetch } = useGetCandidateByUserIdQuery(
-    userId as string, 
+    userId ?? "", 
     { skip: !userId }
   );
+  
+  // Safely extract candidate based on your backend response structure
   const candidate = data?.candidate;
 
   // 2. Fetch Election & Position
@@ -66,14 +68,13 @@ export default function CandidateDetailPage() {
   // 3. Coalition Specific Data & Mutations
   const { data: availableCoalitions, isLoading: loadingList } = useGetCoalitionsByElectionQuery(candidate?.election_id ?? "", { skip: !candidate?.election_id });
   
-  // NEW: Fetch Slate if member of a coalition
   const { data: slateData, isLoading: loadingSlate } = useGetCoalitionFullSlateQuery(candidate?.coalition_id ?? "", { skip: !candidate?.coalition_id });
   
   const [createCoalition, { isLoading: isCreating }] = useCreateCoalitionMutation();
   const [joinCoalition, { isLoading: isJoining }] = useJoinCoalitionMutation();
   const [leaveCoalition, { isLoading: isLeaving }] = useLeaveCoalitionMutation();
 
-  const positionName = positionData?.position?.name || "";
+  const positionName = positionData?.position?.name || "Position";
   const isPresident = positionName.toLowerCase().includes("president") && !positionName.toLowerCase().includes("vice");
 
   const onShare = async () => {
@@ -123,7 +124,7 @@ export default function CandidateDetailPage() {
   const handleLeaveCoalition = () => {
     Alert.alert(
       "Leave Coalition",
-      "Are you sure you want to exit this alliance? This action cannot be undone.",
+      "Are you sure you want to exit this alliance?",
       [
         { text: "Cancel", style: "cancel" },
         { 
@@ -143,8 +144,29 @@ export default function CandidateDetailPage() {
     );
   };
 
-  if (isLoading) return <View style={styles.centered}><ActivityIndicator size="large" color={UNIVERSITY_RED} /></View>;
-  if (isError || !candidate) return <View style={styles.centered}><Text style={styles.devName}>Profile Not Found</Text></View>;
+  // --- LOADING & ERROR STATES ---
+  if (isLoading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color={UNIVERSITY_RED} />
+        <Text style={{ marginTop: 10, color: '#666' }}>Initializing Secure Mainframe...</Text>
+      </View>
+    );
+  }
+
+  // Handle case where user isn't a candidate or server is waking up
+  if (isError || !candidate) {
+    return (
+      <View style={styles.centered}>
+        <MaterialCommunityIcons name="account-search-outline" size={60} color="#ccc" />
+        <Text style={styles.devName}>Profile Not Found</Text>
+        <Text style={styles.bioText}>Server may be sleeping or profile is missing.</Text>
+        <TouchableOpacity style={[styles.submitBtn, { paddingHorizontal: 30 }]} onPress={() => refetch()}>
+          <Text style={styles.submitBtnText}>RETRY SYNC</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -227,7 +249,7 @@ export default function CandidateDetailPage() {
           </TouchableOpacity>
           <View style={styles.secondaryAction}>
              <Text style={styles.statLabelHeader}>POSITION:</Text>
-             <Text style={styles.statValueHeader} numberOfLines={1}>{positionName ?? "Loading..."}</Text>
+             <Text style={styles.statValueHeader} numberOfLines={1}>{positionName}</Text>
           </View>
         </View>
 
@@ -256,7 +278,7 @@ export default function CandidateDetailPage() {
           )}
         </View>
 
-        {/* NEW SECTION: COALITION SLATE MEMBERS */}
+        {/* COALITION SLATE MEMBERS */}
         {candidate.coalition_id && (
             <View style={styles.slateSection}>
                 <View style={styles.sectionHeader}>
@@ -266,7 +288,7 @@ export default function CandidateDetailPage() {
                 {loadingSlate ? (
                     <ActivityIndicator color={DARK_NAVY} />
                 ) : (
-                    slateData?.coalition.candidates.map((member) => (
+                    slateData?.coalition.candidates.map((member: any) => (
                         <View key={member.id} style={styles.memberCard}>
                             <Image source={{ uri: member.photo_url || "https://via.placeholder.com/150" }} style={styles.memberAvatar} />
                             <View style={styles.memberInfo}>
@@ -293,7 +315,7 @@ export default function CandidateDetailPage() {
         </View>
         
         <View style={styles.socialGrid}>
-          <DataBox icon="vote" label="Election" val={electionData?.election?.name ?? "Loading..."} color={DARK_NAVY} />
+          <DataBox icon="vote" label="Election" val={electionData?.election?.name ?? "---"} color={DARK_NAVY} />
           <DataBox icon="account-tie" label="Tier" val={positionData?.position?.tier?.toUpperCase() ?? "---"} color={UNIVERSITY_RED} />
           <DataBox icon="fingerprint" label="Candidate Ref" val={candidate.id?.substring(0, 8) ?? "---"} color="#444" />
           <DataBox icon="shield-check" label="Auth Status" val="Active" color="#2E7D32" />
@@ -321,7 +343,7 @@ const DataBox = ({ icon, label, val, color }: any) => (
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#FAFAFA" },
-  centered: { flex: 1, justifyContent: "center", alignItems: "center" },
+  centered: { flex: 1, justifyContent: "center", alignItems: "center", padding: 20 },
   topNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 12, backgroundColor: UNIVERSITY_WHITE },
   backButton: { padding: 8, borderRadius: 12, backgroundColor: '#FFF2F2' },
   shareIconButton: { padding: 8 },

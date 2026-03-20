@@ -18,6 +18,7 @@ import * as Animatable from "react-native-animatable";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Picker } from "@react-native-picker/picker";
 import AppLayout from "@/src/components/AppLayout";
+import { useCompleteProfileMutation } from "@/src/store/Apis/Auth.Api";
 
 const schools = [
   "Science",
@@ -29,6 +30,7 @@ const schools = [
 
 export default function CompleteProfile() {
   const router = useRouter();
+  const [completeProfile, { isLoading: isUpdating }] = useCompleteProfileMutation();
 
   const [name, setName] = useState("");
   const [school, setSchool] = useState<
@@ -39,21 +41,27 @@ export default function CompleteProfile() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [regNo, setRegNo] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const loadUserData = async () => {
       try {
         const storedToken = await AsyncStorage.getItem("token");
         const storedUser = await AsyncStorage.getItem("user");
+        
+        console.log("Raw Stored User:", storedUser); // Check your console!
+
         if (storedToken && storedUser) {
           const parsedUser = JSON.parse(storedUser);
           setToken(storedToken);
-          setRegNo(parsedUser.reg_no);
+          
+          // Make sure this matches your backend's key (reg_no)
+          const fetchedRegNo = parsedUser.reg_no || parsedUser.regNo || "Not Found";
+          setRegNo(fetchedRegNo);
 
           setName(parsedUser.name || "");
           setSchool(parsedUser.school || "");
           setEmail(parsedUser.email || "");
+          
           if (parsedUser.expected_graduation) {
             const [month, year] = parsedUser.expected_graduation
               .split("/")
@@ -62,7 +70,7 @@ export default function CompleteProfile() {
           }
         }
       } catch (err) {
-        console.log("Error loading user:", err);
+        console.log("Error loading user from storage:", err);
       }
     };
     loadUserData();
@@ -85,45 +93,31 @@ export default function CompleteProfile() {
       Alert.alert("Incomplete", "Please fill all fields.");
       return;
     }
-    if (!token || !regNo) {
+    
+    // We check token here as a fallback, but RTK prepareHeaders handles it
+    if (!token) {
       Alert.alert("Error", "User not authenticated.");
       return;
     }
 
-    setLoading(true);
     try {
-      const res = await fetch(
-        `https://online-voting-system-oq4p.onrender.com/api/auth/complete-profile?reg_no=${regNo}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            name,
-            school,
-            email,
-            expected_graduation: formatDate(expectedGraduation),
-          }),
-        }
-      );
+      const result = await completeProfile({
+        name,
+        school: school as any,
+        email,
+        expected_graduation: formatDate(expectedGraduation),
+      }).unwrap();
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to complete profile");
-
-      // Store user info securely in AsyncStorage
-      await AsyncStorage.setItem("user", JSON.stringify(data.user));
+      // Store updated user info from response
+      await AsyncStorage.setItem("user", JSON.stringify(result.user));
 
       Alert.alert(
         "Success",
-        "Profile completed successfully! Your personal information is safe and will not be shared."
+        "Profile completed successfully! Your personal information is safe."
       );
       router.replace("/(tabs)");
     } catch (err: any) {
-      Alert.alert("Error", err.message || "Network request failed");
-    } finally {
-      setLoading(false);
+      Alert.alert("Error", err.data?.message || err.message || "Failed to update profile");
     }
   };
 
@@ -147,6 +141,12 @@ export default function CompleteProfile() {
           <Animatable.Text animation="fadeInDown" style={styles.title}>
             Complete Your Profile
           </Animatable.Text>
+          
+          {/* Displaying the Reg No from AsyncStorage */}
+          <Animatable.Text animation="fadeIn" style={styles.regNoBadge}>
+            Registration No: {regNo || "Loading..."}
+          </Animatable.Text>
+
           <Animatable.Text animation="fadeInDown" style={styles.subtitle}>
             Please fill in your details. Your information will remain private and
             will not be shared during voting.
@@ -217,9 +217,9 @@ export default function CompleteProfile() {
               <TouchableOpacity
                 style={styles.button}
                 onPress={handleSubmit}
-                disabled={loading}
+                disabled={isUpdating}
               >
-                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Submit</Text>}
+                {isUpdating ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Submit</Text>}
               </TouchableOpacity>
             </Animatable.View>
           </View>
@@ -239,7 +239,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   logo: { width: 120, height: 120, marginBottom: 20 },
-  title: { fontSize: 26, fontWeight: "bold", color: "#c8102e", textAlign: "center", marginBottom: 10 },
+  title: { fontSize: 26, fontWeight: "bold", color: "#c8102e", textAlign: "center", marginBottom: 5 },
+  regNoBadge: { 
+    fontSize: 14, 
+    color: "#666", 
+    backgroundColor: "#f0f0f0", 
+    paddingHorizontal: 12, 
+    paddingVertical: 4, 
+    borderRadius: 15, 
+    marginBottom: 15,
+    fontWeight: "600"
+  },
   subtitle: { fontSize: 16, color: "#444", textAlign: "center", marginBottom: 25 },
   formContainer: { width: "100%" },
   inputContainer: { marginBottom: 15 },

@@ -1,364 +1,339 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   View,
   Text,
+  StyleSheet,
+  ScrollView,
   TextInput,
   TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Alert,
-  RefreshControl,
-  Animated,
-  Platform,
-  StatusBar,
   ActivityIndicator,
-  Image,
-  Modal,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation, NavigationProp } from "@react-navigation/native";
-import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
-import * as ImagePicker from "expo-image-picker";
-import axios from "axios";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { useGetAllElectionsQuery } from "@/src/store/Apis/Election.Api";
+// API Hooks
 import { useGetAllPositionsQuery } from "@/src/store/Apis/Positions.Api";
-import { useCreateApplicationMutation, useGetApplicationsByStudentQuery } from "@/src/store/Apis/Applications.Api";
+import { useGetAllElectionsQuery } from "@/src/store/Apis/Election.Api";
+import { 
+  useCreateApplicationMutation, 
+  useGetApplicationsByStudentQuery 
+} from "@/src/store/Apis/Applications.Api"; 
 
-// ---------- TYPES ----------
-type RootStackParamList = {
-  ApplicationPage: undefined;
-  ApplicationProgress: { application: any };
-};
+const UNIVERSITY_RED = "#D32F2F";
+const DARK_NAVY = "#D32F2F";
+const BG_COLOR = "#F8F9FA";
+const DEFAULT_PHOTO = "https://picsum.photos/200";
 
-type ApplicationPageNavigationProp = NavigationProp<RootStackParamList, "ApplicationPage">;
-
-const SCHOOLS = ["Science", "Education", "Business", "Humanities and Developmental_Studies", "TVET"];
-const STATUS_COLORS: any = { PENDING: "#FFA500", APPROVED: "#4CAF50", REJECTED: "#F44336" };
-
-// Cloudinary Constants
-const CLOUD_NAME = 'dc7dvxjkx';
-const PRESET_KEY = 'eLaikipia';
-
-export default function ApplicationPage() {
-  const scrollRef = useRef<ScrollView>(null);
-  const navigation = useNavigation<ApplicationPageNavigationProp>();
+export default function ApplyCandidateScreen() {
+  const navigation = useNavigation();
+  
+  // Auth State
+  const [authState, setAuthState] = useState({
+    userId: "",
+    name: "",
+    school: "",
+    regNo: "",
+    token: ""
+  });
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   // Form State
-  const [selectedElectionId, setSelectedElectionId] = useState<string>("");
-  const [selectedPositionId, setSelectedPositionId] = useState<string>("");
-  const [manifesto, setManifesto] = useState("");
-  const [selectedSchool, setSelectedSchool] = useState<string>(SCHOOLS[0]);
-  const [studentId, setStudentId] = useState<string>("");
-  const [refreshing, setRefreshing] = useState(false);
-  
-  // Image State
-  const [image, setImage] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
+  const [form, setForm] = useState({
+    election_id: "",
+    position_id: "",
+    manifesto: "",
+    school: "", 
+    photo_url: "",
+  });
 
-  // API Hooks
-  const { data: electionsData } = useGetAllElectionsQuery();
-  const { data: positionsData } = useGetAllPositionsQuery();
-  const [createApplication, { isLoading: isSubmitting }] = useCreateApplicationMutation();
-  const { data: myApplications, refetch: refetchApplications } = useGetApplicationsByStudentQuery();
-
-  // ---------- Image Picker ----------
-// ---------- Image Picker ----------
-const pickImage = async () => {
-  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (status !== "granted") {
-    Alert.alert("Permission Denied", "Permissions needed to upload photo.");
-    return;
-  }
-
-const result = await ImagePicker.launchImageLibraryAsync({
-  mediaTypes: ["images"],
-  allowsEditing: true,
-  aspect: [1, 1],
-  quality: 0.7,
-});
-
-  if (!result.canceled) {
-    setImage(result.assets[0].uri);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }
-};
-
-// ---------- Cloudinary Upload (Optimized for Android + Web) ----------
-const uploadToCloudinary = async () => {
-  if (!image) throw new Error("Please select an image first");
-
-  const formData = new FormData();
-
-  const fileExt = image.split(".").pop();
-
-  const file: any = {
-    uri: image,
-    name: `photo.${fileExt}`,
-    type: `image/${fileExt}`,
-  };
-
-  formData.append("file", file);
-  formData.append("upload_preset", PRESET_KEY);
-
-  try {
-    const response = await fetch(
-      `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
-      {
-        method: "POST",
-        body: formData,
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.log("Cloudinary error:", data);
-      throw new Error("Upload failed");
-    }
-
-    return data.secure_url;
-  } catch (error: any) {
-    console.log("Cloudinary Error:", error);
-    throw new Error(
-      "Image upload failed. Ensure your preset is unsigned."
-    );
-  }
-};
+  // Load Auth from AsyncStorage
   useEffect(() => {
-    const fetchUser = async () => {
+    const getStoredAuthData = async () => {
       try {
-        const userStr = await AsyncStorage.getItem("user");
-        if (userStr) {
-          const user = JSON.parse(userStr);
-          setStudentId(user.id);
-          setSelectedSchool(user.school || SCHOOLS[0]);
+        const storedUser = await AsyncStorage.getItem("user");
+        const storedToken = await AsyncStorage.getItem("token");
+        
+        if (storedUser) {
+          const parsedUser = JSON.parse(storedUser);
+          setAuthState({
+            userId: parsedUser.userId || parsedUser.id || "",
+            name: parsedUser.name || "User",
+            school: parsedUser.school || "Not Specified",
+            regNo: parsedUser.regNo || "",
+            token: storedToken || ""
+          });
+          
+          setForm(prev => ({ ...prev, school: parsedUser.school || "" }));
         }
-      } catch (err) { console.log(err); }
+      } catch (error) {
+        console.error("Error loading auth:", error);
+      } finally {
+        setIsAuthLoading(false);
+      }
     };
-    fetchUser();
+    getStoredAuthData();
   }, []);
 
-  const filteredPositions = useMemo(() => {
-    if (!selectedElectionId || !positionsData?.positions) return [];
-    return positionsData.positions.filter((pos) => pos.election_id.toString() === selectedElectionId.toString());
-  }, [selectedElectionId, positionsData]);
+  // API Queries
+  const { data: electionData, isLoading: loadingElections } = useGetAllElectionsQuery();
+  const { data: positionData, isLoading: loadingPositions } = useGetAllPositionsQuery();
+  const { data: existingApp, isLoading: loadingCheck } = useGetApplicationsByStudentQuery();
+  const [createApplication, { isLoading: isSubmitting }] = useCreateApplicationMutation();
 
-  const grouped = useMemo(() => ({
-    university: filteredPositions.filter((p) => p.tier === "university"),
-    school: filteredPositions.filter((p) => p.tier === "school"),
-  }), [filteredPositions]);
+  // Logic: Check if user already applied for the selected election
+  const hasAlreadyApplied = useMemo(() => {
+    if (!form.election_id || !existingApp) return false;
+    // backend returns a single application object for 'me'
+    return existingApp.election_id === form.election_id;
+  }, [form.election_id, existingApp]);
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await refetchApplications();
-    setRefreshing(false);
-  };
+  const activeElections = useMemo(() => {
+    return electionData?.elections?.filter(e => e.status === "ongoing" || e.status === "upcoming") || [];
+  }, [electionData]);
 
   const handleSubmit = async () => {
-    if (!selectedElectionId || !selectedPositionId || !manifesto || !image) {
-      return Alert.alert("Missing Info", "Please provide a photo, manifesto, and select a position.");
+    if (hasAlreadyApplied) {
+      return Alert.alert("Already Applied", "You have already submitted an application for this election.");
     }
 
-    setIsUploading(true);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (!form.election_id || !form.position_id || !form.manifesto || !form.school) {
+      return Alert.alert("Required Fields", "Please complete all sections.");
+    }
 
     try {
-      const photoUrl = await uploadToCloudinary();
-
       const payload = {
-        student_id: studentId,
-        position_id: selectedPositionId,
-        manifesto,
-        photo_url: photoUrl,
-        school: selectedSchool,
-        election_id: selectedElectionId,
+        student_id: authState.userId, 
+        position_id: form.position_id,
+        manifesto: form.manifesto,
+        photo_url: form.photo_url || DEFAULT_PHOTO,
+        school: form.school.trim(), 
+        election_id: form.election_id,
       };
 
       await createApplication(payload).unwrap();
-      Alert.alert("Success 🎉", "Your application has been submitted for review.");
-      
-      setManifesto("");
-      setImage(null);
-      refetchApplications();
+
+      Alert.alert("Success", "Application Submitted Successfully!", [
+        { text: "OK", onPress: () => navigation.goBack() }
+      ]);
     } catch (err: any) {
-      Alert.alert("Submission Failed", err.message || "Something went wrong");
-    } finally {
-      setIsUploading(false);
+      const errorMessage = err?.data?.error || err?.data?.message || "Failed to submit.";
+      Alert.alert("Submission Failed", errorMessage);
     }
   };
 
+  if (isAuthLoading) {
+    return (
+      <View style={styles.loadingCenter}>
+        <ActivityIndicator size="large" color={UNIVERSITY_RED} />
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" />
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+        
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Ionicons name="close" size={24} color={DARK_NAVY} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Position Application</Text>
+          <View style={{ width: 40 }} />
+        </View>
 
-      {/* Progress Overlay */}
-      <Modal transparent visible={isUploading || isSubmitting}>
-        <View style={styles.overlay}>
-          <View style={styles.loaderCard}>
-            <ActivityIndicator size="large" color="#D32F2F" />
-            <Text style={styles.loaderText}>{isUploading ? "Uploading Photo..." : "Submitting..."}</Text>
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          
+          {/* USER DETAILS SECTION */}
+          <View style={styles.profileCard}>
+            <View style={styles.profileHeader}>
+              <MaterialCommunityIcons name="account-circle" size={40} color={DARK_NAVY} />
+              <View style={{ marginLeft: 12 }}>
+                <Text style={styles.profileName}>{authState.name}</Text>
+                <Text style={styles.profileSub}>{authState.regNo || authState.userId.slice(0, 10)}</Text>
+              </View>
+            </View>
+            <View style={styles.profileDivider} />
+            <View style={styles.profileRow}>
+              <View>
+                <Text style={styles.profileLabel}>PRIMARY SCHOOL</Text>
+                <Text style={styles.profileValue}>{authState.school}</Text>
+              </View>
+              <View style={styles.statusBadge}>
+                <Text style={styles.statusText}>ACTIVE VOTER</Text>
+              </View>
+            </View>
           </View>
-        </View>
-      </Modal>
 
-      <View style={styles.navbar}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={26} color="#D32F2F" />
-        </TouchableOpacity>
-        <Text style={styles.navTitle}>Application Portal</Text>
-        <View style={{ width: 40 }} /> 
-      </View>
-
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        ref={scrollRef}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#D32F2F"]} />}
-      >
-        <Text style={styles.header}>Run for Office</Text>
-        <Text style={styles.subtitle}>Fill in the details below to start your political journey.</Text>
-
-        <View style={styles.card}>
-            <Text style={styles.label}>1. Select Election</Text>
-            <View style={styles.pickerContainer}>
-            <Picker
-                selectedValue={selectedElectionId}
-                onValueChange={(v) => { setSelectedElectionId(v); setSelectedPositionId(""); }}
-            >
-                <Picker.Item label="-- Choose Election --" value="" />
-                {electionsData?.elections?.map((e: any) => (
-                <Picker.Item key={e.id} label={e.name} value={e.id} />
-                ))}
-            </Picker>
-            </View>
-
-            <Text style={styles.label}>2. Candidate Photo</Text>
-            <TouchableOpacity style={styles.imageBox} onPress={pickImage}>
-            {image ? (
-                <Image source={{ uri: image }} style={styles.preview} />
-            ) : (
-                <View style={{ alignItems: 'center' }}>
-                <Ionicons name="camera-outline" size={40} color="#D32F2F" />
-                <Text style={{ color: '#666', marginTop: 8, fontWeight: '600' }}>Tap to upload portrait</Text>
-                </View>
-            )}
-            </TouchableOpacity>
-
-            <Text style={styles.label}>3. Choose Position</Text>
-            {filteredPositions.length === 0 ? (
-            <Text style={styles.noData}>Select an election to see positions.</Text>
-            ) : (
-            <View style={styles.posGrid}>
-                {[...grouped.university, ...grouped.school].map((pos: any) => (
-                <TouchableOpacity
-                    key={pos.id}
-                    style={[styles.posCard, selectedPositionId === pos.id && styles.selected]}
-                    onPress={() => setSelectedPositionId(pos.id)}
+          {/* 1. Election Selection */}
+          <Text style={styles.inputLabel}>Choose Election</Text>
+          <View style={styles.pickerContainer}>
+            {loadingElections ? <ActivityIndicator color={UNIVERSITY_RED} /> : (
+              activeElections.map((e) => (
+                <TouchableOpacity 
+                  key={e.id} 
+                  style={[styles.chip, form.election_id === e.id && styles.chipActive]}
+                  onPress={() => setForm({...form, election_id: e.id})}
                 >
-                    <Ionicons 
-                        name={selectedPositionId === pos.id ? "checkbox" : "square-outline"} 
-                        size={20} 
-                        color={selectedPositionId === pos.id ? "#D32F2F" : "#999"} 
-                    />
-                    <Text style={[styles.posName, selectedPositionId === pos.id && {color: '#D32F2F'}]}>
-                        {pos.name}
-                    </Text>
+                  <Text style={[styles.chipText, form.election_id === e.id && styles.chipTextActive]}>{e.name}</Text>
                 </TouchableOpacity>
-                ))}
-            </View>
+              ))
             )}
+          </View>
 
-            <Text style={styles.label}>4. Manifesto</Text>
-            <TextInput
-            style={styles.input}
-            multiline
-            value={manifesto}
-            onChangeText={setManifesto}
-            placeholder="What is your vision for this role?"
-            placeholderTextColor="#999"
+          {/* DUPLICATE WARNING */}
+          {hasAlreadyApplied && (
+            <View style={styles.warningBox}>
+              <MaterialCommunityIcons name="alert-circle" size={20} color="#B71C1C" />
+              <Text style={styles.warningText}>You already have an application for this election.</Text>
+            </View>
+          )}
+
+          {/* 2. Position Selection */}
+          <Text style={styles.inputLabel}>Target Position</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
+            {loadingPositions ? <ActivityIndicator color={UNIVERSITY_RED} /> : (
+              positionData?.positions?.map((p) => (
+                <TouchableOpacity 
+                  key={p.id} 
+                  disabled={hasAlreadyApplied}
+                  style={[
+                    styles.posCard, 
+                    form.position_id === p.id && styles.posCardActive,
+                    hasAlreadyApplied && { opacity: 0.5 }
+                  ]}
+                  onPress={() => setForm({...form, position_id: p.id})}
+                >
+                  <MaterialCommunityIcons 
+                    name={p.tier === "university" ? "bank" : "school"} 
+                    size={24} 
+                    color={form.position_id === p.id ? "#FFF" : DARK_NAVY} 
+                  />
+                  <Text style={[styles.posText, form.position_id === p.id && styles.posTextActive]}>{p.name}</Text>
+                  <Text style={[styles.tierLabel, form.position_id === p.id && {color: '#EEE'}]}>{p.tier}</Text>
+                </TouchableOpacity>
+              ))
+            )}
+          </ScrollView>
+
+          {/* 3. Filing School */}
+          <Text style={styles.inputLabel}>Filing School</Text>
+          <TextInput 
+            style={[styles.input, hasAlreadyApplied && styles.disabledInput]} 
+            editable={!hasAlreadyApplied}
+            value={form.school} 
+            onChangeText={(v) => setForm({...form, school: v})}
+            placeholder="e.g. Science"
+          />
+
+          {/* 4. Photo URL */}
+          <Text style={[styles.inputLabel, { marginTop: 20 }]}>Photo URL</Text>
+          <View style={styles.urlInputRow}>
+            <TextInput 
+              style={[styles.input, { flex: 1 }, hasAlreadyApplied && styles.disabledInput]} 
+              editable={!hasAlreadyApplied}
+              placeholder="Paste Image URL"
+              value={form.photo_url}
+              onChangeText={(v) => setForm({...form, photo_url: v})}
             />
-
-            <TouchableOpacity
-                style={[styles.button, (isSubmitting || isUploading) && { opacity: 0.6 }]}
-                onPress={handleSubmit}
-                disabled={isSubmitting || isUploading}
+            <TouchableOpacity 
+              style={[styles.defaultBtn, hasAlreadyApplied && { opacity: 0.6 }]} 
+              disabled={hasAlreadyApplied}
+              onPress={() => setForm({...form, photo_url: DEFAULT_PHOTO})}
             >
-                <Text style={styles.btnText}>Submit Application</Text>
-                <Ionicons name="send" size={18} color="#fff" style={{marginLeft: 8}} />
+              <Text style={styles.defaultBtnText}>Default</Text>
             </TouchableOpacity>
-        </View>
+          </View>
 
-        {/* My Applications Section */}
-        {myApplications?.candidates && myApplications.candidates.length > 0 && (
-            <>
-                <Text style={[styles.header, {marginTop: 30}]}>Your Applications</Text>
-                {myApplications.candidates.map((app: any) => (
-                <View key={app.id} style={styles.appCard}>
-                    <View style={styles.appHeader}>
-                        <View>
-                            <Text style={styles.appPosName}>{app.position_id}</Text>
-                            <Text style={styles.appDate}>{new Date().toLocaleDateString()}</Text>
-                        </View>
-                        <View style={[styles.statusBadge, { backgroundColor: STATUS_COLORS[app.overall_status] + '20' }]}>
-                            <Text style={[styles.statusText, { color: STATUS_COLORS[app.overall_status] }]}>
-                                {app.overall_status}
-                            </Text>
-                        </View>
-                    </View>
-                    <TouchableOpacity
-                        style={styles.progressBtn}
-                        onPress={() => navigation.navigate("ApplicationProgress", { application: app })}
-                    >
-                        <Text style={styles.progressBtnText}>Track Progress</Text>
-                        <Ionicons name="chevron-forward" size={16} color="#666" />
-                    </TouchableOpacity>
-                </View>
-                ))}
-            </>
-        )}
-        <View style={{ height: 50 }} />
-      </ScrollView>
+          {/* 5. Manifesto */}
+          <Text style={styles.inputLabel}>Manifesto</Text>
+          <TextInput 
+            style={[styles.input, styles.textArea, hasAlreadyApplied && styles.disabledInput]} 
+            editable={!hasAlreadyApplied}
+            multiline 
+            placeholder="Describe your vision..."
+            value={form.manifesto}
+            onChangeText={(v) => setForm({...form, manifesto: v})}
+          />
+
+          {/* 6. Submit Button */}
+          <TouchableOpacity 
+            style={[
+              styles.submitBtn, 
+              (isSubmitting || hasAlreadyApplied) && { backgroundColor: '#AAA' }
+            ]} 
+            onPress={handleSubmit}
+            disabled={isSubmitting || hasAlreadyApplied}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator color="#FFF" />
+            ) : (
+              <>
+                <Text style={styles.submitBtnText}>
+                  {hasAlreadyApplied ? "APPLICATION SUBMITTED" : "SUBMIT APPLICATION"}
+                </Text>
+                <MaterialCommunityIcons name="send" size={20} color="#FFF" style={{ marginLeft: 10 }} />
+              </>
+            )}
+          </TouchableOpacity>
+
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F8F9FA" },
-  navbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, height: 60, backgroundColor: "#fff", elevation: 2 },
-  backButton: { padding: 8 },
-  navTitle: { fontSize: 18, fontWeight: "800", color: "#D32F2F" },
+  container: { flex: 1, backgroundColor: BG_COLOR },
+  loadingCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 15, paddingVertical: 15, backgroundColor: '#FFF' },
+  backBtn: { padding: 8, borderRadius: 12, backgroundColor: '#F5F5F5' },
+  headerTitle: { fontSize: 16, fontWeight: '900', color: DARK_NAVY, textTransform: 'uppercase' },
   scrollContent: { padding: 20 },
-  header: { fontSize: 24, fontWeight: "900", color: "#1A1A1A" },
-  subtitle: { fontSize: 14, color: "#666", marginBottom: 20 },
-  card: { backgroundColor: '#fff', borderRadius: 16, padding: 16, elevation: 3, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10 },
-  label: { fontSize: 15, fontWeight: "700", marginBottom: 8, marginTop: 15, color: "#333" },
-  pickerContainer: { borderWidth: 1, borderRadius: 12, borderColor: "#E0E0E0", backgroundColor: "#F9F9F9", overflow: 'hidden' },
-  imageBox: { height: 180, borderWidth: 2, borderStyle: 'dashed', borderColor: '#D32F2F40', borderRadius: 16, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF5F5', overflow: 'hidden' },
-  preview: { width: '100%', height: '100%' },
-  posGrid: { marginTop: 5 },
-  posCard: { flexDirection: 'row', alignItems: 'center', padding: 12, marginVertical: 4, borderWidth: 1, borderColor: "#EEE", borderRadius: 10, backgroundColor: '#fff' },
-  selected: { borderColor: "#D32F2F", backgroundColor: "#FFF5F5" },
-  posName: { fontSize: 14, fontWeight: "600", color: "#444", marginLeft: 10 },
-  input: { borderWidth: 1, borderColor: "#E0E0E0", borderRadius: 12, padding: 15, height: 120, backgroundColor: "#F9F9F9", textAlignVertical: "top", fontSize: 15 },
-  button: { backgroundColor: "#D32F2F", padding: 18, borderRadius: 12, alignItems: "center", marginTop: 20, flexDirection: 'row', justifyContent: 'center' },
-  btnText: { color: "#fff", fontWeight: "800", fontSize: 16 },
-  noData: { color: "#999", fontStyle: "italic", marginVertical: 10 },
   
-  // App History Styles
-  appCard: { backgroundColor: '#fff', borderRadius: 15, padding: 16, marginTop: 12, borderLeftWidth: 5, borderLeftColor: '#D32F2F' },
-  appHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  appPosName: { fontSize: 16, fontWeight: '800', color: '#333' },
-  appDate: { fontSize: 12, color: '#999' },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  statusText: { fontSize: 11, fontWeight: '800' },
-  progressBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 15, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F0F0F0' },
-  progressBtnText: { fontSize: 13, fontWeight: '600', color: '#666' },
+  // Profile Section
+  profileCard: { backgroundColor: '#FFF', borderRadius: 20, padding: 20, marginBottom: 25, borderWidth: 1, borderColor: '#E0E0E0', elevation: 2 },
+  profileHeader: { flexDirection: 'row', alignItems: 'center' },
+  profileName: { fontSize: 18, fontWeight: '800', color: DARK_NAVY },
+  profileSub: { fontSize: 12, color: '#777', fontWeight: '600' },
+  profileDivider: { height: 1, backgroundColor: '#F0F0F0', marginVertical: 15 },
+  profileRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  profileLabel: { fontSize: 10, color: '#AAA', fontWeight: '900' },
+  profileValue: { fontSize: 14, color: DARK_NAVY, fontWeight: '700' },
+  statusBadge: { backgroundColor: '#E3F2FD', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  statusText: { color: '#1E88E5', fontSize: 10, fontWeight: '900' },
 
-  // Loader Overlay
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  loaderCard: { backgroundColor: '#fff', padding: 30, borderRadius: 20, alignItems: 'center', width: '70%' },
-  loaderText: { marginTop: 15, fontWeight: '700', color: '#333' }
+  // Warnings
+  warningBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFEBEE', padding: 12, borderRadius: 12, marginBottom: 20 },
+  warningText: { color: '#B71C1C', fontSize: 12, fontWeight: '700', marginLeft: 8 },
+
+  // Inputs
+  inputLabel: { fontSize: 11, fontWeight: '800', color: '#888', marginBottom: 10, textTransform: 'uppercase' },
+  pickerContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 25 },
+  chip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#EEE' },
+  chipActive: { backgroundColor: UNIVERSITY_RED, borderColor: UNIVERSITY_RED },
+  chipText: { fontSize: 13, color: '#444', fontWeight: '700' },
+  chipTextActive: { color: '#FFF' },
+  
+  horizontalScroll: { marginBottom: 25 },
+  posCard: { width: 130, height: 100, backgroundColor: '#FFF', borderRadius: 18, padding: 12, marginRight: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#F0F0F0' },
+  posCardActive: { backgroundColor: DARK_NAVY, borderColor: DARK_NAVY },
+  posText: { fontSize: 11, fontWeight: '900', color: DARK_NAVY, marginTop: 6, textAlign: 'center' },
+  posTextActive: { color: '#FFF' },
+  tierLabel: { fontSize: 8, color: '#AAA', textTransform: 'uppercase', marginTop: 2, fontWeight: 'bold' },
+
+  urlInputRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 10 },
+  defaultBtn: { backgroundColor: DARK_NAVY, paddingHorizontal: 15, height: 50, borderRadius: 12, justifyContent: 'center' },
+  defaultBtnText: { color: '#FFF', fontSize: 11, fontWeight: '800' },
+  
+  input: { backgroundColor: '#FFF', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#F0F0F0', fontSize: 14, color: '#333' },
+  disabledInput: { backgroundColor: '#F5F5F5', color: '#999' },
+  textArea: { height: 120, textAlignVertical: 'top', marginBottom: 25 },
+  
+  submitBtn: { backgroundColor: UNIVERSITY_RED, flexDirection: 'row', height: 60, borderRadius: 16, justifyContent: 'center', alignItems: 'center', elevation: 4 },
+  submitBtnText: { color: '#FFF', fontWeight: '900', fontSize: 14, letterSpacing: 1 },
 });

@@ -38,7 +38,6 @@ export interface MessageResponse {
 export const candidatesApi = createApi({
   reducerPath: "candidatesApi",
   baseQuery: fetchBaseQuery({
-    // Standardized: No trailing slash
     baseUrl: "https://online-voting-system-oq4p.onrender.com/api/candidates",
     prepareHeaders: async (headers) => {
       const token = await AsyncStorage.getItem("token");
@@ -58,51 +57,50 @@ export const candidatesApi = createApi({
     }),
 
     getCandidateById: builder.query<CandidateResponse, string>({
-      // REMOVED leading slash to ensure it appends to baseUrl correctly
-      query: (id) => `by-id/${id}`,
+      query: (id) => `/by-id/${id}`,
       providesTags: ["Candidates"],
     }),
     
     getCandidateByUserId: builder.query<CandidateResponse, string>({
-      // Match exactly with your Express route: /by-user/:userId
-      query: (userId) => `by-user/${userId}`,
+      // Fixed: Added leading slash for clean path concatenation
+      query: (userId) => `/by-user/${userId}`,
       providesTags: ["Candidates"],
     }),
 
     getCandidatesByName: builder.query<CandidatesResponse, string>({
-      query: (name) => `by-name?name=${encodeURIComponent(name)}`,
+      query: (name) => `/by-name?name=${encodeURIComponent(name)}`,
       providesTags: ["Candidates"],
     }),
 
     getCandidatesBySchool: builder.query<CandidatesResponse, string>({
-      query: (school) => `by-school?school=${encodeURIComponent(school)}`,
+      query: (school) => `/by-school?school=${encodeURIComponent(school)}`,
       providesTags: ["Candidates"],
     }),
 
     getCandidatesByPosition: builder.query<CandidatesResponse, string>({
-      query: (position_id) => `by-position?position_id=${encodeURIComponent(position_id)}`,
+      query: (position_id) => `/by-position?position_id=${encodeURIComponent(position_id)}`,
       providesTags: ["Candidates"],
     }),
 
     getCandidatesByCoalition: builder.query<CandidatesResponse, string>({
-      query: (coalition_id) => `by-coalition?coalition_id=${encodeURIComponent(coalition_id)}`,
+      query: (coalition_id) => `/by-coalition?coalition_id=${encodeURIComponent(coalition_id)}`,
       providesTags: ["Candidates"],
     }),
 
     getCandidatesByElection: builder.query<CandidatesResponse, string>({
-      query: (electionId) => `by-election/${encodeURIComponent(electionId)}`,
+      query: (electionId) => `/by-election/${encodeURIComponent(electionId)}`,
       providesTags: ["Candidates"],
     }),
 
     // -------------------- 2️⃣ COUNTS (Admin Only) --------------------
     
     getCandidatesCount: builder.query<CountResponse, void>({
-      query: () => "count",
+      query: () => "/count",
       providesTags: ["Candidates"],
     }),
 
     getCandidatesCountBySchool: builder.query<CountResponse, string>({
-      query: (school) => `count-by-school?school=${encodeURIComponent(school)}`,
+      query: (school) => `/count-by-school?school=${encodeURIComponent(school)}`,
       providesTags: ["Candidates"],
     }),
 
@@ -110,7 +108,7 @@ export const candidatesApi = createApi({
     
     createCandidate: builder.mutation<MessageResponse, Partial<Candidate>>({
       query: (body) => ({
-        url: "create",
+        url: "/create",
         method: "POST",
         body,
       }),
@@ -119,7 +117,7 @@ export const candidatesApi = createApi({
 
     updateCandidate: builder.mutation<MessageResponse, { id: string; body: Partial<Candidate> }>({
       query: ({ id, body }) => ({
-        url: `update/${id}`,
+        url: `/update/${id}`,
         method: "PUT",
         body,
       }),
@@ -128,7 +126,7 @@ export const candidatesApi = createApi({
 
     deleteCandidate: builder.mutation<MessageResponse, string>({
       query: (id) => ({
-        url: `delete/${id}`,
+        url: `/delete/${id}`,
         method: "DELETE",
       }),
       invalidatesTags: ["Candidates"],
@@ -136,7 +134,7 @@ export const candidatesApi = createApi({
 
     disqualifyCandidate: builder.mutation<MessageResponse, string>({
       query: (id) => ({
-        url: `disqualify/${id}`,
+        url: `/disqualify/${id}`,
         method: "DELETE",
       }),
       invalidatesTags: ["Candidates"],
