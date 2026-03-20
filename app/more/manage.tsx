@@ -1,300 +1,382 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
-  Image,
-  TextInput,
   ScrollView,
-  Animated,
-  Share,
-  Modal,
+  TouchableOpacity,
+  ActivityIndicator,
   Alert,
+  RefreshControl,
+  TextInput,
+  Modal,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import * as ImagePicker from "expo-image-picker";
-import { LinearGradient } from "expo-linear-gradient";
-import QRCode from "react-native-qrcode-svg";
-import ConfettiCannon from "react-native-confetti-cannon";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Animatable from "react-native-animatable";
 
-type User = {
+// Redux & API Hooks
+import { useSelector } from "react-redux";
+import { RootState } from "@/src/store";
+import { 
+  useGetUserByIdQuery, 
+  useUpdateUserMutation, 
+  useDeleteUserMutation 
+} from "@/src/store/Apis/User.Api";
+
+// --- THEME ---
+const UNIVERSITY_RED = "#D32F2F";
+const DARK_NAVY = "#121212";
+const CLEAN_WHITE = "#FFFFFF";
+const BG_COLOR = "#F9FAFB";
+const DANGER_ZONE = "#FF3B30";
+const SUCCESS_GREEN = "#2E7D32";
+const UNIVERSITY_BLACK = 'rgba(0,0,0,0.8)';
+
+interface User {
+  id: string;
   name: string;
   email: string;
-  admission: string;
-  voterId: string;
-  department: string;
-  year: string;
-  avatar: string;
-  hasVoted: boolean;
-  twoFAEnabled: boolean;
-  passwordSet: boolean;
-};
+  reg_no: string;
+  role: string;
+  expected_graduation: string;
+  graduation_status: string;
+  school: string;
+  profile_complete: boolean;
+  has_secret_code: boolean;
+  has_face_verification: boolean;
+  created_at: string;
+}
 
-type VoteHistoryItem = {
-  election: string;
-  date: string;
-  status: "Voted" | "Missed";
-  details: string;
-};
+export default function ProfileScreen() {
+  const navigation = useNavigation<any>();
+  const [isEditModalVisible, setEditModalVisible] = useState(false);
 
-export default function AccountDashboard() {
-  const [user, setUser] = useState<User>({
-    name: "John Doe",
-    email: "john.doe@school.ac.ke",
-    admission: "ADM2025-00123",
-    voterId: "VTR-888-221-993",
-    department: "Computer Science",
-    year: "4th Year",
-    avatar:
-      "https://ui-avatars.com/api/?name=John+Doe&background=ff3366&color=fff",
-    hasVoted: false,
-    twoFAEnabled: false,
-    passwordSet: true,
+  const userId = useSelector((state: RootState) => state.auth.user?.userId);
+
+  const { data, isLoading, refetch, isFetching, error } = useGetUserByIdQuery(userId || "", {
+    skip: !userId,
   });
+  const [updateUser, { isLoading: isUpdating }] = useUpdateUserMutation();
+  const [deleteUser, { isLoading: isDeleting }] = useDeleteUserMutation();
 
-  const [focusedField, setFocusedField] = useState<string | null>(null);
-  const [password, setPassword] = useState("");
-  const [nextElection] = useState("15 Dec 2025");
-  const [modalVisible, setModalVisible] = useState(false);
-  const [selectedVote, setSelectedVote] = useState<VoteHistoryItem | null>(null);
-  const [showConfetti, setShowConfetti] = useState(false);
-
-  const [voteHistory, setVoteHistory] = useState<VoteHistoryItem[]>([
-    { election: "Student Council 2024", date: "12 Jan 2024", status: "Voted", details: "Voted for Jane Smith as president." },
-    { election: "Class Rep 2024", date: "20 Feb 2024", status: "Missed", details: "Did not participate." },
-    { election: "Sports Committee 2024", date: "05 Mar 2024", status: "Voted", details: "Voted for Alex Kimani as Sports Rep." },
-  ]);
-
-  const headerAnim = useRef(new Animated.Value(0)).current;
-  const statusAnim = useRef(new Animated.Value(0)).current;
-  const historyAnim = useRef(voteHistory.map(() => new Animated.Value(0))).current;
-  const votePulseAnim = useRef(new Animated.Value(1)).current;
-
-  const profileCompletion = Math.floor(
-    ((user.avatar ? 1 : 0) +
-      (user.email ? 1 : 0) +
-      (user.passwordSet ? 1 : 0) +
-      (user.twoFAEnabled ? 1 : 0)) /
-      4 *
-      100
-  );
+  const userData = data?.user as User | undefined;
+  const [form, setForm] = useState({ name: "", school: "" });
 
   useEffect(() => {
-    Animated.timing(headerAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
-    Animated.timing(statusAnim, { toValue: 1, duration: 600, delay: 300, useNativeDriver: true }).start();
-    historyAnim.forEach((anim, index) => {
-      Animated.timing(anim, { toValue: 1, duration: 500, delay: 500 + index * 200, useNativeDriver: true }).start();
-    });
-
-    if (!user.hasVoted) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(votePulseAnim, { toValue: 1.05, duration: 700, useNativeDriver: true }),
-          Animated.timing(votePulseAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
-        ])
-      ).start();
+    if (userData) {
+      setForm({ name: userData.name, school: userData.school });
     }
-  }, []);
+  }, [userData]);
 
-  const handleChange = (field: keyof User, value: string) => setUser({ ...user, [field]: value });
-
-  const pickImage = async (camera: boolean = false) => {
-    const permissionResult = camera
-      ? await ImagePicker.requestCameraPermissionsAsync()
-      : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permissionResult.granted) return alert("Permission is required!");
-    const result = camera
-      ? await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.7 })
-      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.7 });
-    if (!result.canceled) setUser({ ...user, avatar: result.assets[0].uri });
-  };
-
-  const handleSave = () => alert("Profile updated successfully!");
-  const handleVoteNow = () => {
-    setUser({ ...user, hasVoted: true });
-    setShowConfetti(true);
-    setTimeout(() => setShowConfetti(false), 4000);
-  };
-  const handleShareVoterId = async () => {
+  const handleUpdate = async () => {
+    if (!userId) return;
     try {
-      await Share.share({ message: `My voter ID: ${user.voterId}\nName: ${user.name}\nSchool: Laikipia University` });
-    } catch { alert("Failed to share voter ID"); }
+      await updateUser({ id: userId, name: form.name, school: form.school }).unwrap();
+      Alert.alert("Authorized", "Voter registry has been updated.");
+      setEditModalVisible(false);
+    } catch (err: any) {
+      Alert.alert("Access Denied", err?.data?.error || "Sync failed.");
+    }
   };
 
-  const openVoteDetails = (vote: VoteHistoryItem) => {
-    setSelectedVote(vote);
-    setModalVisible(true);
+  const handleLogout = async () => {
+    Alert.alert("Secure Session", "Terminate encrypted connection?", [
+      { text: "Cancel", style: "cancel" },
+      { 
+        text: "Logout", 
+        style: "destructive", 
+        onPress: async () => {
+          await AsyncStorage.multiRemove(["token", "user"]);
+          navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+        } 
+      },
+    ]);
   };
 
-  const handleLogout = () => Alert.alert("Logout", "Are you sure you want to logout?", [{ text: "Cancel" }, { text: "Logout", onPress: () => alert("Logged out") }]);
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      "CRITICAL: PURGE IDENTITY",
+      "This will remove you from the active voter registry. You will lose your right to vote in the current cycle.",
+      [
+        { text: "Abort", style: "cancel" },
+        { 
+          text: "Confirm Purge", 
+          style: "destructive", 
+          onPress: async () => {
+            try {
+              if (!userId) return;
+              await deleteUser(userId).unwrap();
+              await AsyncStorage.multiRemove(["token", "user"]);
+              navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+            } catch (err: any) {
+              Alert.alert("Purge Failed", "Blockchain registry rejected the request.");
+            }
+          } 
+        },
+      ]
+    );
+  };
+
+  if (isLoading || (userId && !userData && !error)) {
+    return (
+      <View style={styles.loadingCenter}>
+        <ActivityIndicator size="large" color={UNIVERSITY_RED} />
+        <Text style={styles.loadingText}>SYNCING VOTER RECORD...</Text>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      {showConfetti && <ConfettiCannon count={150} origin={{ x: -10, y: 0 }} fadeOut />}
-      <ScrollView contentContainerStyle={{ paddingBottom: 30 }}>
-        {/* Header */}
-        <Animated.View style={{ opacity: headerAnim, transform: [{ translateY: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [-50, 0] }) }] }}>
-          <LinearGradient colors={["#ff3366", "#ff6688"]} style={styles.headerGradient}>
-            <View style={styles.profileTop}>
-              <View style={styles.avatarRow}>
-                <TouchableOpacity onPress={() => pickImage(false)} style={styles.avatarWrapper}>
-                  <Image source={{ uri: user.avatar }} style={styles.avatar} />
-                  <View style={styles.cameraIcon}><Text style={styles.cameraIconText}>📸</Text></View>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => pickImage(true)} style={styles.cameraButton}><Text style={styles.cameraButtonText}>Take Photo</Text></TouchableOpacity>
-              </View>
-              <Text style={styles.userName}>{user.name}</Text>
-              <Text style={styles.userEmail}>{user.email}</Text>
-              <View style={styles.progressContainer}>
-                <View style={[styles.progressBar, { width: `${profileCompletion}%` }]} />
-                <Text style={styles.progressText}>Profile Completion: {profileCompletion}%</Text>
-              </View>
-            </View>
-          </LinearGradient>
-        </Animated.View>
-
-        {/* Voting Status */}
-        <Animated.View style={{ opacity: statusAnim, transform: [{ scale: statusAnim.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] }) }] }}>
-          <View style={styles.statusCard}>
-            <Text style={styles.statusText}>Voting Status:</Text>
-            <Text style={[styles.statusValue, { color: user.hasVoted ? "#2ecc71" : "#ff3366" }]}>{user.hasVoted ? "✅ Already Voted" : "❌ Not Voted"}</Text>
-            {!user.hasVoted && <Animated.View style={{ transform: [{ scale: votePulseAnim }] }}><TouchableOpacity style={styles.voteButton} onPress={handleVoteNow}><Text style={styles.voteButtonText}>Vote Now</Text></TouchableOpacity></Animated.View>}
-            <View style={styles.reminderBadge}><Text style={styles.reminderText}>Next Election: {nextElection}</Text></View>
-            <TouchableOpacity style={styles.shareButton} onPress={handleShareVoterId}><Text style={styles.shareButtonText}>Share Voter ID</Text></TouchableOpacity>
-            <View style={styles.qrContainer}><QRCode value={user.voterId} size={100} /></View>
+      {/* HEADER */}
+      <View style={styles.header}>
+        <Animatable.View animation="fadeInLeft" style={styles.headerLeft}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backChevron}>
+             <Ionicons name="chevron-back" size={26} color={UNIVERSITY_RED} />
+          </TouchableOpacity>
+          <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.logo} />
+          <View>
+            <Text style={styles.headerTitle}>Voter Terminal</Text>
+            <Text style={styles.headerSub}>NODE: {userData?.id.slice(0, 8).toUpperCase()}</Text>
           </View>
-        </Animated.View>
+        </Animatable.View>
+        
+        <View style={styles.headerRight}>
+          <TouchableOpacity 
+            style={styles.notifBell} 
+            onPress={() => navigation.navigate("more/notifications")}
+          >
+            <Ionicons name="notifications-outline" size={24} color={UNIVERSITY_RED} />
+            <View style={styles.bellDot} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
+            <MaterialCommunityIcons name="power-standby" size={22} color={UNIVERSITY_RED} />
+          </TouchableOpacity>
+        </View>
+      </View>
 
-        {/* Editable Fields & Security */}
-        <View style={styles.form}>
-          {[
-            { label: "Full Name", field: "name" as keyof User },
-            { label: "Email", field: "email" as keyof User },
-            { label: "Admission Number", field: "admission" as keyof User },
-            { label: "Voter ID", field: "voterId" as keyof User },
-          ].map(({ label, field }) => (
-            <View key={field} style={[styles.inputContainer, focusedField === field && styles.inputContainerFocused]}>
-              <Text style={styles.label}>{label}</Text>w
-              <TextInput value={String(user[field])} onChangeText={(txt) => handleChange(field, txt)} onFocus={() => setFocusedField(field)} onBlur={() => setFocusedField(null)} style={styles.input} editable={field !== "voterId"} />
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={isFetching} onRefresh={refetch} tintColor={UNIVERSITY_RED} />}
+      >
+        {/* VOTER ID CARD */}
+        <View style={styles.heroSection}>
+          <Animatable.View animation="flipInY" duration={2000} style={styles.voterCard}>
+            <View style={styles.cardTop}>
+                <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.cardLogo} />
+                <View style={styles.chip} />
             </View>
-          ))}
-          <View style={[styles.inputContainer, focusedField === "password" && styles.inputContainerFocused]}>
-            <Text style={styles.label}>Change Password</Text>
-            <TextInput value={password} onChangeText={setPassword} onFocus={() => setFocusedField("password")} onBlur={() => setFocusedField(null)} style={styles.input} secureTextEntry placeholder="Enter new password" placeholderTextColor="#aaa" />
-          </View>
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Two-Factor Authentication (2FA)</Text>
-            <TouchableOpacity style={[styles.twoFAButton, { backgroundColor: user.twoFAEnabled ? "#2ecc71" : "#eee" }]} onPress={() => setUser({ ...user, twoFAEnabled: !user.twoFAEnabled })}>
-              <Text style={{ color: user.twoFAEnabled ? "#fff" : "#555", fontWeight: "700" }}>{user.twoFAEnabled ? "Enabled" : "Enable"}</Text>
+            
+            <View style={styles.cardBody}>
+                <View style={styles.avatarBorder}>
+                    <MaterialCommunityIcons name="account-tie" size={60} color={CLEAN_WHITE} />
+                </View>
+                <View style={styles.cardInfo}>
+                    <Text style={styles.cardName}>{userData?.name.toUpperCase()}</Text>
+                    <Text style={styles.cardReg}>{userData?.reg_no}</Text>
+                    <View style={styles.eligibilityBadge}>
+                        <Text style={styles.eligibilityText}>ELIGIBLE VOTER</Text>
+                    </View>
+                </View>
+            </View>
+            
+            <View style={styles.cardFooter}>
+                <Text style={styles.cardFooterText}>LAIKIPIA UNIVERSITY ELECTORAL COMMISSION</Text>
+            </View>
+          </Animatable.View>
+          
+          <TouchableOpacity style={styles.editBadge} onPress={() => setEditModalVisible(true)}>
+             <Ionicons name="shield-checkmark" size={14} color={CLEAN_WHITE} />
+             <Text style={styles.editBadgeText}>UPDATE VOTER DETAILS</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ELECTION STATUS */}
+        <View style={styles.gridSection}>
+          <StatusCard 
+            icon="fingerprint"
+            label="Biometrics"
+            value={userData?.has_face_verification ? "VERIFIED" : "PENDING"}
+            isActive={userData?.has_face_verification}
+          />
+          <StatusCard 
+            icon="vote"
+            label="Ballot Status"
+            value="NOT CAST"
+            isActive={false}
+          />
+        </View>
+
+        {/* SECURITY & RECORD DETAILS */}
+        <View style={styles.infoSection}>
+          <Text style={styles.sectionLabel}>Election Metadata</Text>
+          <InfoItem icon="ribbon-outline" label="Constituency" value={userData?.school} showArrow />
+          <InfoItem icon="calendar-outline" label="Graduation Year" value={userData?.expected_graduation} isLocked />
+        <InfoItem 
+            icon="calendar-clear-outline" 
+            label="Registration Date" 
+            value={userData?.created_at ? new Date(userData.created_at).toLocaleDateString('en-GB', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric'
+            }) : "PENDING"} 
+            isLocked 
+          />
+          <InfoItem icon="globe-outline" label="Registry Status" value="On-Chain (Sepolia)" isLocked />
+
+
+          <Text style={[styles.sectionLabel, { marginTop: 25 }]}>System Integrity</Text>
+          <InfoItem icon="hardware-chip-outline" label="Session ID" value={userData?.id} isLocked />
+          <InfoItem icon="person-outline" label="Registry Role" value={userData?.role.toUpperCase()} isLocked />
+
+          <Text style={[styles.sectionLabel, { marginTop: 25, color: DANGER_ZONE }]}>DELETE ACCOUNT</Text>
+          <TouchableOpacity style={styles.deleteBox} onPress={handleDeleteAccount} disabled={isDeleting}>
+            <View style={styles.dangerIcon}>
+                {isDeleting ? <ActivityIndicator size="small" color={DANGER_ZONE} /> : <Ionicons name="alert-circle-outline" size={20} color={DANGER_ZONE} />}
+            </View>
+            <View style={styles.infoContent}>
+                <Text style={styles.deleteTitle}>Delete User Account</Text>
+                <Text style={styles.deleteSub}>De-register from the current election cycle</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity style={styles.syncButton} onPress={() => refetch()}>
+          <Ionicons name="refresh-circle-outline" size={20} color={CLEAN_WHITE} />
+          <Text style={styles.syncText}>REFRESH VOTER LEDGER</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.footerInfo}>SECURE VOTING SYSTEM • BLOCKCHAIN ENABLED</Text>
+      </ScrollView>
+
+      {/* UPDATE MODAL */}
+      <Modal visible={isEditModalVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Update Voter Data</Text>
+            
+            <Text style={styles.inputLabel}>Full Legal Name</Text>
+            <TextInput style={styles.input} value={form.name} onChangeText={(t) => setForm({...form, name: t})} />
+            
+            <Text style={styles.inputLabel}>University School</Text>
+            <TextInput style={styles.input} value={form.school} onChangeText={(t) => setForm({...form, school: t})} />
+
+            <Text style={styles.inputLabel}>Expected Graduation (System Locked)</Text>
+            <TextInput 
+              style={[styles.input, styles.disabledInput]} 
+              value={userData?.expected_graduation} 
+              editable={false} 
+            />
+            
+            <View style={styles.noteBox}>
+                <Ionicons name="information-circle" size={18} color={UNIVERSITY_RED} />
+                <Text style={styles.noteText}>Contact Admin to update Graduation dates. All metadata changes are audited.</Text>
+            </View>
+
+            <TouchableOpacity style={styles.saveBtn} onPress={handleUpdate} disabled={isUpdating}>
+              {isUpdating ? <ActivityIndicator color={CLEAN_WHITE} /> : <Text style={styles.saveBtnText}>SYNC WITH REGISTRY</Text>}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditModalVisible(false)}>
+              <Text style={styles.cancelBtnText}>CANCEL</Text>
             </TouchableOpacity>
           </View>
         </View>
-
-        {/* Voting History */}
-        <View style={styles.historyCard}>
-          <Text style={styles.historyTitle}>Voting History</Text>
-          {voteHistory.map((vote, idx) => (
-            <Animated.View key={idx} style={{ opacity: historyAnim[idx], transform: [{ translateY: historyAnim[idx].interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }] }}>
-              <TouchableOpacity style={styles.historyItem} onPress={() => openVoteDetails(vote)}>
-                <Text style={styles.historyElection}>{vote.election}</Text>
-                <Text style={styles.historyDate}>{vote.date}</Text>
-                <Text style={[styles.historyStatus, { color: vote.status === "Voted" ? "#2ecc71" : "#ff3366" }]}>{vote.status}</Text>
-              </TouchableOpacity>
-            </Animated.View>
-          ))}
-        </View>
-
-        <TouchableOpacity style={styles.saveButton} onPress={handleSave}><Text style={styles.saveButtonText}>Save Changes</Text></TouchableOpacity>
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}><Text style={styles.logoutButtonText}>Logout</Text></TouchableOpacity>
-
-        {/* Improved Modal for Voting History */}
-        <Modal visible={modalVisible} transparent animationType="fade">
-          <View style={styles.modalOverlay}>
-            <Animated.View style={styles.modalCard}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>{selectedVote?.election}</Text>
-                <TouchableOpacity onPress={() => setModalVisible(false)}>
-                  <Text style={styles.modalClose}>✕</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.modalBody}>
-                <Text style={styles.modalLabel}>Date:</Text>
-                <Text style={styles.modalText}>{selectedVote?.date}</Text>
-
-                <Text style={styles.modalLabel}>Status:</Text>
-                <Text style={[styles.modalText, { color: selectedVote?.status === "Voted" ? "#2ecc71" : "#ff3366" }]}>
-                  {selectedVote?.status}
-                </Text>
-
-                <Text style={styles.modalLabel}>Details:</Text>
-                <Text style={styles.modalText}>{selectedVote?.details}</Text>
-              </View>
-              <TouchableOpacity style={styles.modalButton} onPress={() => setModalVisible(false)}>
-                <Text style={styles.modalButtonText}>Close</Text>
-              </TouchableOpacity>
-            </Animated.View>
-          </View>
-        </Modal>
-      </ScrollView>
+      </Modal>
     </SafeAreaView>
   );
 }
 
-// === Styles ===
-// (Add all previous styles for header, profile, voting status, forms, buttons, etc.)
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  headerGradient: { paddingVertical: 20, paddingHorizontal: 20, borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
-  profileTop: { alignItems: "center" },
-  avatarRow: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
-  avatarWrapper: { width: 80, height: 80, borderRadius: 40, overflow: "hidden", marginRight: 10 },
-  avatar: { width: "100%", height: "100%" },
-  cameraIcon: { position: "absolute", bottom: 0, right: 0, backgroundColor: "#ff3366", borderRadius: 12, padding: 2 },
-  cameraIconText: { color: "#fff", fontSize: 12 },
-  cameraButton: { backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
-  cameraButtonText: { color: "#ff3366", fontWeight: "700" },
-  userName: { fontSize: 20, fontWeight: "700", color: "#fff" },
-  userEmail: { fontSize: 14, color: "#fff", marginBottom: 10 },
-  progressContainer: { width: "100%", backgroundColor: "#fff3", borderRadius: 10, overflow: "hidden", height: 10, marginBottom: 10 },
-  progressBar: { height: "100%", backgroundColor: "#fff" },
-  progressText: { fontSize: 12, color: "#fff", marginTop: 5 },
-  statusCard: { backgroundColor: "#fff", margin: 20, borderRadius: 16, padding: 20, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
-  statusText: { fontSize: 16, fontWeight: "600" },
-  statusValue: { fontSize: 16, fontWeight: "700", marginVertical: 5 },
-  voteButton: { backgroundColor: "#ff3366", padding: 12, borderRadius: 12, alignItems: "center", marginVertical: 10 },
-  voteButtonText: { color: "#fff", fontWeight: "700" },
-  reminderBadge: { backgroundColor: "#ffdde0", padding: 8, borderRadius: 12, alignItems: "center", marginVertical: 5 },
-  reminderText: { color: "#ff3366", fontWeight: "700" },
-  shareButton: { backgroundColor: "#ff6688", padding: 10, borderRadius: 12, alignItems: "center", marginTop: 10 },
-  shareButtonText: { color: "#fff", fontWeight: "700" },
-  qrContainer: { marginTop: 10, alignItems: "center" },
-  form: { paddingHorizontal: 20, marginTop: 10 },
-  inputContainer: { marginVertical: 8, borderWidth: 1, borderColor: "#eee", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6 },
-  inputContainerFocused: { borderColor: "#ff3366" },
-  label: { fontSize: 14, fontWeight: "600", color: "#555" },
-  input: { fontSize: 16, color: "#333" },
-  twoFAButton: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, marginTop: 6, alignItems: "center" },
-  historyCard: { margin: 20, padding: 16, backgroundColor: "#fff", borderRadius: 16, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 5, elevation: 3 },
-  historyTitle: { fontSize: 16, fontWeight: "700", marginBottom: 10 },
-  historyItem: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#eee" },
-  historyElection: { fontSize: 15, fontWeight: "600" },
-  historyDate: { fontSize: 13, color: "#888" },
-  historyStatus: { fontSize: 13, fontWeight: "700" },
-  saveButton: { backgroundColor: "#ff3366", marginHorizontal: 20, paddingVertical: 14, borderRadius: 12, alignItems: "center", marginTop: 20 },
-  saveButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  logoutButton: { marginTop: 15, marginHorizontal: 20, backgroundColor: "#555", paddingVertical: 15, borderRadius: 12, alignItems: "center" },
-  logoutButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+// COMPONENT HELPERS
+const StatusCard = ({ icon, label, value, isActive }: any) => (
+  <View style={styles.statusCard}>
+    <MaterialCommunityIcons name={icon} size={28} color={isActive ? SUCCESS_GREEN : UNIVERSITY_RED} />
+    <Text style={styles.statusLabel}>{label}</Text>
+    <Text style={[styles.statusValue, { color: isActive ? SUCCESS_GREEN : UNIVERSITY_RED }]}>{value}</Text>
+  </View>
+);
 
-  // --- Modal Styles ---
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", paddingHorizontal: 20 },
-  modalCard: { width: "100%", backgroundColor: "#fff", borderRadius: 20, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 10 },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 15 },
-  modalTitle: { fontSize: 18, fontWeight: "700", color: "#ff3366" },
-  modalClose: { fontSize: 20, fontWeight: "700", color: "#aaa" },
-  modalBody: { marginBottom: 20 },
-  modalLabel: { fontSize: 14, fontWeight: "600", color: "#555", marginTop: 10 },
-  modalText: { fontSize: 16, color: "#333" },
-  modalButton: { backgroundColor: "#ff3366", paddingVertical: 12, borderRadius: 12, alignItems: "center" },
-  modalButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+const InfoItem = ({ icon, label, value, isLocked, showArrow }: any) => (
+  <View style={styles.infoBox}>
+    <View style={styles.iconContainer}><Ionicons name={icon} size={18} color={UNIVERSITY_RED} /></View>
+    <View style={styles.infoContent}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue} numberOfLines={1}>{value || "NOT_SET"}</Text>
+    </View>
+    {isLocked ? <Ionicons name="lock-closed" size={12} color="#DDD" /> : showArrow ? <Ionicons name="chevron-forward" size={16} color="#BBB" /> : null}
+  </View>
+);
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: BG_COLOR },
+  loadingCenter: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: CLEAN_WHITE },
+  loadingText: { marginTop: 15, fontSize: 10, fontWeight: "900", color: "#666", letterSpacing: 1.5 },
+  
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 15, paddingVertical: 12, backgroundColor: CLEAN_WHITE, borderBottomWidth: 1, borderColor: "#EEE" },
+  headerLeft: { flexDirection: "row", alignItems: "center" },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+  backChevron: { paddingRight: 8 },
+  logo: { width: 38, height: 38, marginRight: 10, resizeMode: 'contain' },
+  notifBell: { padding: 8, position: 'relative' },
+  bellDot: { position: 'absolute', top: 10, right: 10, width: 8, height: 8, borderRadius: 4, backgroundColor: UNIVERSITY_RED, borderWidth: 1.5, borderColor: CLEAN_WHITE },
+  headerTitle: { fontSize: 16, fontWeight: "900", color: UNIVERSITY_RED },
+  headerSub: { fontSize: 10, color: "#999", fontWeight: "700" },
+  logoutBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#FFF5F5", justifyContent: "center", alignItems: "center" },
+  
+  heroSection: { alignItems: "center", paddingVertical: 25, backgroundColor: CLEAN_WHITE, borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 4 },
+  voterCard: { width: '90%', height: 180, backgroundColor: UNIVERSITY_BLACK, borderRadius: 20, padding: 20, elevation: 10 },
+  cardTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
+  cardLogo: { width: 35, height: 35, resizeMode: 'contain' },
+  chip: { width: 40, height: 30, backgroundColor: 'gold', borderRadius: 5, opacity: 0.8 },
+  cardBody: { flexDirection: 'row', alignItems: 'center' },
+  avatarBorder: { width: 70, height: 70, borderRadius: 35, borderWidth: 2, borderColor: UNIVERSITY_RED, backgroundColor: '#1e1e1e', justifyContent: 'center', alignItems: 'center' },
+  cardInfo: { marginLeft: 15, flex: 1 },
+  cardName: { color: CLEAN_WHITE, fontSize: 16, fontWeight: '900' },
+  cardReg: { color: '#AAA', fontSize: 12, fontWeight: '600' },
+  eligibilityBadge: { backgroundColor: SUCCESS_GREEN, alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, marginTop: 8 },
+  eligibilityText: { color: CLEAN_WHITE, fontSize: 8, fontWeight: '900' },
+  cardFooter: { marginTop: 'auto', borderTopWidth: 0.5, borderColor: '#333', paddingTop: 8 },
+  cardFooterText: { color: '#666', fontSize: 8, textAlign: 'center', fontWeight: '800' },
+
+  editBadge: { marginTop: 20, flexDirection: 'row', alignItems: 'center', backgroundColor: UNIVERSITY_RED, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+  editBadgeText: { color: CLEAN_WHITE, fontSize: 11, fontWeight: "800", marginLeft: 8 },
+
+  gridSection: { flexDirection: "row", padding: 20, gap: 15 },
+  statusCard: { flex: 1, backgroundColor: CLEAN_WHITE, padding: 18, borderRadius: 22, alignItems: "center", borderWidth: 1, borderColor: "#F0F0F0" },
+  statusLabel: { fontSize: 9, color: "#AAA", fontWeight: "800", marginTop: 8, textTransform: "uppercase" },
+  statusValue: { fontSize: 11, fontWeight: "900", marginTop: 2 },
+
+  infoSection: { paddingHorizontal: 20 },
+  sectionLabel: { fontSize: 11, fontWeight: "900", color: "#888", textTransform: "uppercase", marginBottom: 12, letterSpacing: 1 },
+  infoBox: { flexDirection: "row", alignItems: "center", backgroundColor: CLEAN_WHITE, padding: 15, borderRadius: 15, marginBottom: 10, borderWidth: 1, borderColor: "#F2F2F2" },
+  iconContainer: { width: 36, height: 36, borderRadius: 10, backgroundColor: "#FFF2F2", justifyContent: "center", alignItems: "center" },
+  infoContent: { marginLeft: 15, flex: 1 },
+  infoLabel: { fontSize: 8, color: "#AAA", fontWeight: "800", textTransform: "uppercase" },
+  infoValue: { fontSize: 14, color: DARK_NAVY, fontWeight: "700", marginTop: 1 },
+  
+  deleteBox: { flexDirection: "row", alignItems: "center", backgroundColor: "#FFF8F7", padding: 15, borderRadius: 15, borderWidth: 1, borderColor: "#FFE0DE" },
+  dangerIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: "#FFE0DE", justifyContent: "center", alignItems: "center" },
+  deleteTitle: { fontSize: 14, fontWeight: "800", color: DANGER_ZONE },
+  deleteSub: { fontSize: 10, color: "#A08080", fontWeight: "600" },
+
+  syncButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", margin: 25, padding: 18, borderRadius: 20, backgroundColor: UNIVERSITY_RED },
+  syncText: { color: CLEAN_WHITE, fontSize: 14, fontWeight: "900", marginLeft: 10 },
+  footerInfo: { textAlign: "center", fontSize: 10, color: "#000", fontWeight: "700", marginBottom: 40 },
+
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", padding: 25 },
+  modalContainer: { backgroundColor: CLEAN_WHITE, borderRadius: 30, padding: 25 },
+  modalTitle: { fontSize: 20, fontWeight: "900", color: DARK_NAVY, marginBottom: 20, textAlign: 'center' },
+  inputLabel: { fontSize: 11, fontWeight: "800", color: "#999", marginBottom: 6, marginLeft: 5 },
+  input: { backgroundColor: "#F7F7F7", padding: 16, borderRadius: 14, marginBottom: 15, fontWeight: "700", color: DARK_NAVY, borderWidth: 1, borderColor: "#EEE" },
+  disabledInput: { color: "#AAA", backgroundColor: "#EAEAEA" },
+  noteBox: { flexDirection: 'row', backgroundColor: "#FFF2F2", padding: 12, borderRadius: 12, marginBottom: 20, alignItems: 'center' },
+  noteText: { flex: 1, color: UNIVERSITY_RED, fontSize: 10, fontWeight: "700", marginLeft: 8 },
+  saveBtn: { backgroundColor: DARK_NAVY, padding: 18, borderRadius: 16, alignItems: "center" },
+  saveBtnText: { color: CLEAN_WHITE, fontWeight: "900" },
+  cancelBtn: { padding: 18, alignItems: "center" },
+  cancelBtnText: { color: "#888", fontWeight: "800" }
 });
