@@ -1,235 +1,247 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
-  Image,
   TouchableOpacity,
+  Linking,
+  StatusBar,
   Platform,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from "@expo/vector-icons";
+import { 
+  Ionicons, 
+  MaterialCommunityIcons, 
+  Octicons, 
+  Feather, 
+  FontAwesome5 
+} from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
+import Toast from 'react-native-toast-message';
 
 const UNIVERSITY_RED = "#D32F2F";
 const UNIVERSITY_WHITE = "#FFFFFF";
-const LIGHT_GRAY = "#F8F9FA";
+const DARK_NAVY = "#1A237E";
+const BORDER_COLOR = "#F0F0F0";
+const DISABLED_GREY = "#BDBDBD";
 
-export default function AboutPage() {
+export default function DetailedPrivacyPolicy() {
   const navigation = useNavigation();
+  const [hasReadToBottom, setHasReadToBottom] = useState(false);
+
+  const handleScroll = (event: any) => {
+    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+    const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 50;
+    
+    if (isCloseToBottom && !hasReadToBottom) {
+      setHasReadToBottom(true);
+      Toast.show({
+        type: 'success',
+        text1: 'Verification Complete',
+        text2: 'You have acknowledged the Data Protection Protocol.',
+      });
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* STICKY TOP NAVIGATION BAR */}
+      <StatusBar barStyle="dark-content" backgroundColor={UNIVERSITY_WHITE} />
+      
+      {/* IMPROVED LEFT-ALIGNED BRANDING */}
       <View style={styles.topNav}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="arrow-back" size={24} color={UNIVERSITY_RED} />
+        <View style={styles.navLeft}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <Ionicons name="chevron-back" size={26} color={UNIVERSITY_RED} />
+          </TouchableOpacity>
+          
+          <View style={styles.brandContainer}>
+            <Image 
+              source={require('@/assets/images/Laikipia-logo.png')} 
+              style={styles.navLogo} 
+            />
+            <View style={styles.headerTextGroup}>
+              <Text style={styles.topNavTitle}>Privacy & Governance</Text>
+              <Text style={styles.topNavSub}>LU-EVOTE-SECURE-PROTOCOL</Text>
+            </View>
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.shareIconButton} onPress={() => Linking.openURL('https://www.laikipia.ac.ke')}>
+          <MaterialCommunityIcons name="shield-crown-outline" size={24} color={UNIVERSITY_RED} />
         </TouchableOpacity>
-        <Text style={styles.topNavTitle}>About Platform</Text>
-        <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        contentContainerStyle={styles.container} 
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
+      >
         
-        {/* HERO SECTION */}
-        <View style={styles.heroSection}>
-          <View style={styles.iconContainer}>
-            <MaterialCommunityIcons name="shield-check" size={60} color={UNIVERSITY_RED} />
+        {/* EXECUTIVE SUMMARY */}
+        <View style={styles.headerSection}>
+          <View style={styles.avatarInner}>
+            <FontAwesome5 name="user-shield" size={32} color={UNIVERSITY_WHITE} />
           </View>
-          <Text style={styles.appTitle}>Laikipia E-Vote</Text>
-          <Text style={styles.appTagline}>Integrity • Transparency • Efficiency</Text>
+          <Text style={styles.docName}>Data Privacy Shield</Text>
+          <Text style={styles.docSubLabel}>Laikipia University Electoral Standard</Text>
+          <View style={styles.statusBadge}>
+            <Text style={styles.statusText}>OFFICIAL DOCUMENT • FEB 2026</Text>
+          </View>
         </View>
 
-        {/* MISSION STATEMENT */}
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Our Mission</Text>
+        {/* 1. DATA COLLECTION & SOURCE */}
+        <SectionHeader title="1. Data Origin & Scope" />
+        <View style={styles.detailCard}>
           <Text style={styles.bodyText}>
-            To revolutionize the student electoral process at Laikipia University by 
-            providing a secure, accessible, and transparent digital voting environment. 
-            We bridge the gap between technology and democracy for the next generation of leaders.
+            The Laikipia E-Vote system interfaces with the <Text style={styles.bold}>University Registrar Database (ERP)</Text>. We collect the following minimum data points:
           </Text>
+          <BulletPoint text="Primary Identity: Full Name and Registration Number for SSO validation." />
+          <BulletPoint text="Academic Status: School, Department, and Current Year of Study to determine constituency eligibility." />
+          <BulletPoint text="Device Metadata: IP Address and Device ID to prevent double-voting." />
         </View>
 
-        {/* CORE PILLARS GRID */}
-        <Text style={styles.label}>System Core Pillars</Text>
-        <View style={styles.pillarGrid}>
-          <View style={styles.pillarItem}>
-            <Ionicons name="finger-print" size={28} color={UNIVERSITY_RED} />
-            <Text style={styles.pillarTitle}>Biometric Logic</Text>
-            <Text style={styles.pillarDesc}>Ensuring one student, one vote via unique identifiers.</Text>
-          </View>
-          <View style={styles.pillarItem}>
-            <MaterialCommunityIcons name="database-lock" size={28} color={UNIVERSITY_RED} />
-            <Text style={styles.pillarTitle}>Encrypted</Text>
-            <Text style={styles.pillarDesc}>End-to-end data protection and vault security.</Text>
-          </View>
-          <View style={styles.pillarItem}>
-            <FontAwesome5 name="chart-line" size={22} color={UNIVERSITY_RED} />
-            <Text style={styles.pillarTitle}>Real-time</Text>
-            <Text style={styles.pillarDesc}>Instant, audited result tracking and analytics.</Text>
-          </View>
-          <View style={styles.pillarItem}>
-            <Ionicons name="people" size={28} color={UNIVERSITY_RED} />
-            <Text style={styles.pillarTitle}>Inclusive</Text>
-            <Text style={styles.pillarDesc}>A UI designed for all students across campuses.</Text>
-          </View>
-        </View>
-
-        {/* SECURITY TRANSPARENCY SECTION */}
-        <View style={styles.securityCard}>
-          <View style={styles.securityHeader}>
-            <Ionicons name="lock-closed" size={18} color={UNIVERSITY_WHITE} />
-            <Text style={styles.securityHeaderText}>SECURE PROTOCOL V1.0.4</Text>
-          </View>
-          <View style={styles.securityBody}>
-            <Text style={styles.securityText}>
-              • Multi-factor Student Authentication{"\n"}
-              • Immutable Ledger Record Keeping{"\n"}
-              • Advanced Anti-Tamper Algorithms{"\n"}
-              • Real-time Fraud Detection Layers
+        {/* 2. THE SECRET BALLOT ARCHITECTURE */}
+        <SectionHeader title="2. The 'Secret Ballot' Protocol" />
+        <View style={styles.detailCard}>
+          <Text style={styles.bodyText}>
+            To ensure constitutional compliance, we employ a <Text style={styles.bold}>Decoupled Logic Architecture</Text>:
+          </Text>
+          <View style={styles.logicBox}>
+            <MaterialCommunityIcons name="link-variant-off" size={20} color={UNIVERSITY_RED} />
+            <Text style={styles.logicText}>
+              Your Student ID marks you as 'Voted' to prevent duplicates, but your ballot is stored separately with no digital link back to your identity.
             </Text>
           </View>
         </View>
 
-        {/* INSTITUTIONAL INFO */}
-        <View style={styles.infoSection}>
-          <Text style={styles.sectionTitle}>Institutional Alignment</Text>
-          <Text style={styles.bodyText}>
-            This platform is strictly engineered to follow the Laikipia University 
-            Student Organization (LUSO) constitution and the University's electoral guidelines 
-            under the supervision of the Electoral Commission.
-          </Text>
-          
-          <TouchableOpacity style={styles.linkButton}>
-            <Text style={styles.linkButtonText}>Read Electoral Guidelines</Text>
-            <Ionicons name="open-outline" size={16} color={UNIVERSITY_RED} />
-          </TouchableOpacity>
+        {/* 3. LEGAL COMPLIANCE */}
+        <SectionHeader title="3. Legal Framework" />
+        <View style={styles.detailCard}>
+          <BulletPoint text="Kenya Data Protection Act (2019): Right to Privacy." />
+          <BulletPoint text="University Statutes (Article VI): Election integrity." />
+          <BulletPoint text="Cyber Crimes Act: Unauthorized access is criminalized." />
         </View>
 
-        {/* DEVELOPER FOOTNOTE */}
-        <View style={styles.footer}>
-          <View style={styles.footerLine} />
-          <Text style={styles.footerText}>
-            Designed and Developed by{"\n"}
-            <Text style={styles.devName}>Gakenye Ndiritu</Text>
+        {/* 5. USER RIGHTS */}
+        <SectionHeader title="4. Your Digital Rights" />
+        <View style={styles.expertiseGrid}>
+          <GridItem icon="eye" title="Transparency" desc="View your eligibility status." />
+          <GridItem icon="database" title="Correction" desc="Request updates via Registrar." />
+          <GridItem icon="shield-off" title="Objection" desc="Withdraw consent at any time." />
+          <GridItem icon="file-download" title="Portability" desc="Request login history logs." />
+        </View>
+
+        {/* ACKNOWLEDGMENT BUTTON */}
+        <TouchableOpacity 
+          style={[styles.acceptButton, !hasReadToBottom && styles.disabledButton]} 
+          onPress={() => hasReadToBottom && navigation.goBack()}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.acceptButtonText}>
+            {hasReadToBottom ? "I ACKNOWLEDGE & AGREE" : "SCROLL TO VERIFY READING"}
           </Text>
-          <Text style={styles.versionText}>System Build: PRODUCTION_STABLE_V1</Text>
+          {hasReadToBottom && <Ionicons name="shield-checkmark" size={20} color={UNIVERSITY_WHITE} style={{marginLeft: 10}} />}
+        </TouchableOpacity>
+
+        {/* FOOTER */}
+        <View style={styles.footer}>
+          <View style={styles.footerDivider} />
+          <Text style={styles.footerBrand}>ICT DIRECTORATE • DATA PROTECTION OFFICE</Text>
+          <Text style={styles.footerSub}>SYSTEM ARCHITECT: GAKENYE NDIRITU • v1.0.4</Text>
         </View>
 
       </ScrollView>
+      <Toast />
     </SafeAreaView>
   );
 }
 
+/* HELPER COMPONENTS */
+const SectionHeader = ({ title }: { title: string }) => (
+  <View style={styles.sectionHeader}>
+    <Text style={styles.sectionTitle}>{title}</Text>
+    <View style={styles.titleLine} />
+  </View>
+);
+
+const BulletPoint = ({ text }: { text: string }) => (
+  <View style={styles.bulletRow}>
+    <Octicons name="dot-fill" size={10} color={UNIVERSITY_RED} style={{ marginTop: 6 }} />
+    <Text style={styles.bulletText}>{text}</Text>
+  </View>
+);
+
+const GridItem = ({ icon, title, desc }: any) => (
+  <View style={styles.gridCard}>
+    <Feather name={icon} size={18} color={UNIVERSITY_RED} />
+    <Text style={styles.gridTitle}>{title}</Text>
+    <Text style={styles.gridDesc}>{desc}</Text>
+  </View>
+);
+
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: UNIVERSITY_WHITE },
-  
-  /* TOP NAV STYLES */
+  safeArea: { flex: 1, backgroundColor: "#F9FAFB" },
   topNav: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: UNIVERSITY_WHITE,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, height: 75, backgroundColor: UNIVERSITY_WHITE,
+    borderBottomWidth: 1, borderBottomColor: BORDER_COLOR,
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#FFF5F5",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  topNavTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#1A1A1A",
-    textTransform: "uppercase",
-    letterSpacing: 1,
-  },
-
-  container: { padding: 20, paddingBottom: 40 },
+  navLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  backButton: { padding: 4, marginRight: 6 },
   
-  heroSection: { alignItems: 'center', marginVertical: 20 },
-  iconContainer: { 
-    width: 100, 
-    height: 100, 
-    borderRadius: 50, 
-    backgroundColor: '#FFF5F5', 
-    justifyContent: 'center', 
-    alignItems: 'center',
-    marginBottom: 15
-  },
-  appTitle: { fontSize: 32, fontWeight: '900', color: '#1A1A1A' },
-  appTagline: { fontSize: 13, color: UNIVERSITY_RED, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 5 },
+  /* BRANDING STYLES - TEXT NEAR LOGO */
+  brandContainer: { flexDirection: 'row', alignItems: 'center' },
+  navLogo: { width: 38, height: 38, resizeMode: 'contain', marginRight: 10 },
+  headerTextGroup: { justifyContent: 'center' },
+  topNavTitle: { fontSize: 13, fontWeight: "900", color: "#1A1A1A", letterSpacing: 0.3 },
+  topNavSub: { fontSize: 8, color: UNIVERSITY_RED, fontWeight: '700', marginTop: 1 },
+  
+  shareIconButton: { padding: 8 },
 
-  card: { 
-    backgroundColor: LIGHT_GRAY, 
-    padding: 22, 
-    borderRadius: 24, 
-    marginBottom: 25,
-    borderWidth: 1,
-    borderColor: '#EEE'
+  container: { padding: 20, paddingBottom: 60 },
+
+  headerSection: { alignItems: 'center', marginBottom: 30 },
+  avatarInner: { 
+    width: 70, height: 70, borderRadius: 24, backgroundColor: DARK_NAVY, 
+    justifyContent: 'center', alignItems: 'center', marginBottom: 15
   },
-  sectionTitle: { fontSize: 18, fontWeight: '800', color: '#1A1A1A', marginBottom: 10 },
+  docName: { fontSize: 22, fontWeight: "900", color: "#111" },
+  docSubLabel: { fontSize: 13, color: UNIVERSITY_RED, fontWeight: "700", marginTop: 4 },
+  statusBadge: { backgroundColor: '#F0F0F0', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, marginTop: 12 },
+  statusText: { fontSize: 9, fontWeight: '800', color: '#777', letterSpacing: 1 },
+
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', marginVertical: 20 },
+  sectionTitle: { fontSize: 13, fontWeight: "900", color: "#222", textTransform: 'uppercase' },
+  titleLine: { flex: 1, height: 1, backgroundColor: '#EEE', marginLeft: 15 },
+
+  detailCard: { backgroundColor: UNIVERSITY_WHITE, padding: 20, borderRadius: 24, borderWidth: 1, borderColor: BORDER_COLOR },
   bodyText: { fontSize: 14, color: '#555', lineHeight: 22 },
+  bold: { fontWeight: '800', color: '#222' },
 
-  label: { fontSize: 16, fontWeight: '800', color: '#1A1A1A', marginBottom: 15, marginLeft: 5 },
-  pillarGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  pillarItem: { 
-    width: '48%', 
-    backgroundColor: UNIVERSITY_WHITE, 
-    padding: 18, 
-    borderRadius: 20, 
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: '#F0F0F0',
-    alignItems: 'center',
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 5 },
-      android: { elevation: 2 }
-    })
+  bulletRow: { flexDirection: 'row', marginTop: 12 },
+  bulletText: { fontSize: 13, color: '#555', marginLeft: 10, lineHeight: 20, flex: 1 },
+
+  logicBox: { backgroundColor: '#F8F9FA', padding: 15, borderRadius: 16, marginTop: 15, borderLeftWidth: 4, borderLeftColor: UNIVERSITY_RED },
+  logicText: { fontSize: 12, color: '#444', fontStyle: 'italic', lineHeight: 18 },
+
+  expertiseGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  gridCard: { width: '48%', backgroundColor: UNIVERSITY_WHITE, padding: 18, borderRadius: 24, marginBottom: 15, borderWidth: 1, borderColor: BORDER_COLOR },
+  gridTitle: { fontSize: 13, fontWeight: '900', color: '#222', marginTop: 10 },
+  gridDesc: { fontSize: 10, color: '#777', marginTop: 5, lineHeight: 16 },
+
+  acceptButton: { 
+    backgroundColor: UNIVERSITY_RED, height: 60, borderRadius: 24, 
+    flexDirection: 'row', justifyContent: 'center', alignItems: 'center', 
+    marginTop: 20, elevation: 4, shadowColor: UNIVERSITY_RED, shadowOpacity: 0.2, shadowRadius: 10
   },
-  pillarTitle: { fontSize: 14, fontWeight: '700', color: '#333', marginTop: 10 },
-  pillarDesc: { fontSize: 11, color: '#888', textAlign: 'center', marginTop: 6, lineHeight: 16 },
+  disabledButton: { backgroundColor: DISABLED_GREY, elevation: 0, shadowOpacity: 0 },
+  acceptButtonText: { color: UNIVERSITY_WHITE, fontWeight: '900', fontSize: 15 },
 
-  securityCard: { backgroundColor: '#2D2D2D', borderRadius: 24, overflow: 'hidden', marginBottom: 25 },
-  securityHeader: { 
-    flexDirection: 'row', 
-    backgroundColor: UNIVERSITY_RED, 
-    padding: 14, 
-    alignItems: 'center', 
-    justifyContent: 'center' 
-  },
-  securityHeaderText: { color: UNIVERSITY_WHITE, fontWeight: '800', fontSize: 11, marginLeft: 8, letterSpacing: 1.2 },
-  securityBody: { padding: 22 },
-  securityText: { color: '#BDBDBD', fontSize: 13, lineHeight: 26, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
-
-  infoSection: { marginBottom: 30 },
-  linkButton: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    marginTop: 15, 
-    borderWidth: 1.5, 
-    borderColor: UNIVERSITY_RED, 
-    paddingHorizontal: 16,
-    paddingVertical: 12, 
-    borderRadius: 14,
-    alignSelf: 'flex-start'
-  },
-  linkButtonText: { color: UNIVERSITY_RED, fontWeight: '700', fontSize: 13, marginRight: 8 },
-
-  footer: { alignItems: 'center', marginTop: 20 },
-  footerLine: { width: 40, height: 4, backgroundColor: '#EEE', borderRadius: 2, marginBottom: 25 },
-  footerText: { textAlign: 'center', fontSize: 12, color: '#999', lineHeight: 20 },
-  devName: { color: '#444', fontWeight: '800' },
-  versionText: { fontSize: 10, color: '#DDD', marginTop: 12, letterSpacing: 1 }
+  footer: { marginTop: 40, alignItems: 'center' },
+  footerDivider: { width: 30, height: 2, backgroundColor: UNIVERSITY_RED, marginBottom: 15 },
+  footerBrand: { fontSize: 10, fontWeight: '900', color: '#444', letterSpacing: 1 },
+  footerSub: { fontSize: 9, color: '#BBB', marginTop: 5, fontWeight: '700' }
 });

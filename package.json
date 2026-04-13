@@ -69,6 +69,7 @@
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@types/react": "~19.1.0",
+    "@types/react-native-svg-charts": "^5.0.16",
     "@types/react-redux": "^7.1.34",
     "eas-cli": "^16.32.0",
     "eslint": "^9.25.0",

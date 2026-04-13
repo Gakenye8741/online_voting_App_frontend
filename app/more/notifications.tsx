@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,13 +10,16 @@ import {
   RefreshControl,
   Alert,
   Modal,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import * as Haptics from "expo-haptics"; 
+import * as Animatable from "react-native-animatable";
 
 import { 
   useGetUserNotificationsQuery, 
@@ -26,19 +29,31 @@ import {
 
 dayjs.extend(relativeTime);
 
-// UNIVERSITY BRAND COLORS ONLY
+// --- THEME ---
 const UNIVERSITY_RED = "#D32F2F";
-const UNIVERSITY_WHITE = "#FFFFFF";
-const BACKGROUND_GREY = "#FAFAFA";
+const DARK_NAVY = "#121212";
+const CLEAN_WHITE = "#FFFFFF";
+const BG_COLOR = "#F9FAFB";
 
 export default function NotificationPage() {
-  const navigation = useNavigation();
-  
-  // Modal State
+  const router = useRouter();
   const [selectedNotif, setSelectedNotif] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [regNo, setRegNo] = useState<string | null>(null);
 
-  // User ID from your system
+  // Dynamic User ID retrieval
+  useEffect(() => {
+    const loadUser = async () => {
+      const storedUser = await AsyncStorage.getItem("user");
+      if (storedUser) {
+        const parsedUser = JSON.parse(storedUser);
+        setRegNo(parsedUser.reg_no);
+      }
+    };
+    loadUser();
+  }, []);
+
+  // Hardcoded fallback ID preserved as per your request, though regNo is now available
   const userId = "a03561f1-5793-479f-aba4-bcb167729bd0"; 
 
   const { data: notifications, isLoading, isFetching, refetch } = useGetUserNotificationsQuery(userId);
@@ -48,32 +63,31 @@ export default function NotificationPage() {
   const unreadCount = notifications?.filter(n => !n.is_read).length || 0;
 
   const onRefresh = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     refetch();
   }, [refetch]);
 
   const handlePressNotification = async (item: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
     setSelectedNotif(item);
     setModalVisible(true);
 
     if (!item.is_read) {
       try {
         const notificationId = item.id || item._id;
-        // Integrating the PUT {{baseUrl}}/mark-read/{{notificationId}}
         await markAsRead(notificationId).unwrap();
       } catch (error) {
-        console.error("Failed to mark notification as read:", error);
+        console.error("Sync Error:", error);
       }
     }
   };
 
   const handleMarkAll = () => {
     Alert.alert(
-      "Clear Indicators",
+      "Clear Registry Indicators",
       "Mark all official briefings as read?",
       [
-        { text: "Cancel", style: "cancel" },
+        { text: "Abort", style: "cancel" },
         { 
           text: "Confirm", 
           onPress: async () => {
@@ -81,7 +95,7 @@ export default function NotificationPage() {
             try {
               await markAllRead(userId).unwrap();
             } catch (error) {
-              Alert.alert("Error", "Could not sync read status.");
+              Alert.alert("Sync Error", "Could not update read status on-chain.");
             }
           }
         }
@@ -93,13 +107,21 @@ export default function NotificationPage() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
       
-      <View style={styles.topNav}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={22} color={UNIVERSITY_RED} />
-        </TouchableOpacity>
-        <Text style={styles.topNavTitle}>Communication Center</Text>
+      {/* --- TOP NAVIGATION BAR --- */}
+      <View style={styles.navBar}>
+        <Animatable.View animation="fadeInLeft" style={styles.navLeft}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backChevron}>
+             <Ionicons name="chevron-back" size={26} color={UNIVERSITY_RED} />
+          </TouchableOpacity>
+          <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.navLogo} />
+          <View>
+            <Text style={styles.navTitle}>Registry Inbox</Text>
+            <Text style={styles.navSub}>ENCRYPTED CHANNEL</Text>
+          </View>
+        </Animatable.View>
+        
         <TouchableOpacity 
-          style={styles.actionIcon} 
+          style={styles.navRight} 
           onPress={handleMarkAll}
           disabled={unreadCount === 0}
         >
@@ -115,100 +137,88 @@ export default function NotificationPage() {
         contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl 
-            refreshing={isFetching} 
-            onRefresh={onRefresh} 
-            tintColor={UNIVERSITY_RED} 
-            colors={[UNIVERSITY_RED]} 
-          />
+          <RefreshControl refreshing={isFetching} onRefresh={onRefresh} tintColor={UNIVERSITY_RED} />
         }
       >
-        
-        <View style={styles.headerSection}>
+        {/* HEADER SECTION */}
+        <Animatable.View animation="fadeInDown" style={styles.headerSection}>
           <View style={styles.iconWrapper}>
             <View style={styles.iconInner}>
-              <MaterialCommunityIcons name="shield-outline" size={38} color={UNIVERSITY_WHITE} />
+              <MaterialCommunityIcons name="shield-lock-outline" size={42} color={CLEAN_WHITE} />
             </View>
             {unreadCount > 0 && <View style={styles.activeIndicator} />}
           </View>
-          <Text style={styles.pageTitle}>Inbox</Text>
-          <Text style={styles.pageSubTitle}>LUEC Official Correspondence</Text>
+          <Text style={styles.pageTitle}>Communication Center</Text>
+          <Text style={styles.pageSubTitle}>L.U.E.C Node: {regNo || "FETCHING..."}</Text>
           
-          <View style={styles.badgeRow}>
-            <View style={styles.statusBadge}>
-              <View style={[styles.statusDot, { backgroundColor: isFetching ? '#FFB300' : UNIVERSITY_RED }]} />
-              <Text style={styles.statusText}>
-                {isFetching ? "Syncing..." : `${unreadCount} Unread Briefing(s)`}
-              </Text>
-            </View>
+          <View style={styles.statusBadge}>
+            <View style={[styles.statusDot, { backgroundColor: isFetching ? '#FFB300' : UNIVERSITY_RED }]} />
+            <Text style={styles.statusText}>
+              {isFetching ? "SYNCING REGISTRY..." : `${unreadCount} UNREAD BRIEFING(S)`}
+            </Text>
           </View>
-        </View>
+        </Animatable.View>
 
         <View style={styles.sectionDivider}>
-          <Text style={styles.sectionLabel}>Recent Briefings</Text>
+          <Text style={styles.sectionLabel}>Broadcast History</Text>
           <View style={styles.dividerLine} />
         </View>
 
         {isLoading ? (
           <View style={styles.loaderContainer}>
             <ActivityIndicator size="large" color={UNIVERSITY_RED} />
-            <Text style={styles.loadingText}>Fetching updates...</Text>
+            <Text style={styles.loadingText}>ACCESSING SECURE DATABASE...</Text>
           </View>
         ) : notifications && notifications.length > 0 ? (
-          notifications.map((item) => (
-            <TouchableOpacity 
-              key={item.id || item._id} 
-              activeOpacity={0.7}
-              style={[styles.notifCard, !item.is_read && styles.unreadCard]}
-              onPress={() => handlePressNotification(item)}
-            >
-              <View style={[styles.iconCircle, !item.is_read && styles.unreadIconCircle]}>
-                <MaterialCommunityIcons 
-                  name={item.is_read ? "email-open-outline" : "email-mark-as-unread"} 
-                  size={20} 
-                  color={item.is_read ? UNIVERSITY_RED + '80' : UNIVERSITY_RED} 
-                />
-              </View>
-              
-              <View style={styles.contentArea}>
-                <View style={styles.cardHeader}>
-                  <Text style={[styles.notifTitle, !item.is_read && styles.boldTitle]} numberOfLines={1}>
-                    {item.title}
-                  </Text>
-                  <Text style={styles.timeStamp}>{dayjs(item.createdAt).fromNow()}</Text>
+          notifications.map((item, index) => (
+            <Animatable.View key={item.id || item._id} animation="fadeInUp" delay={index * 100}>
+              <TouchableOpacity 
+                activeOpacity={0.8}
+                style={[styles.notifCard, !item.is_read && styles.unreadCard]}
+                onPress={() => handlePressNotification(item)}
+              >
+                <View style={[styles.iconCircle, !item.is_read && styles.unreadIconCircle]}>
+                  <MaterialCommunityIcons 
+                    name={item.is_read ? "email-open-outline" : "email-seal-outline"} 
+                    size={20} 
+                    color={item.is_read ? "#BBB" : UNIVERSITY_RED} 
+                  />
                 </View>
-                <Text style={styles.notifMessage} numberOfLines={2}>{item.message}</Text>
-              </View>
-            </TouchableOpacity>
+                
+                <View style={styles.contentArea}>
+                  <View style={styles.cardHeader}>
+                    <Text style={[styles.notifTitle, !item.is_read && styles.boldTitle]} numberOfLines={1}>
+                      {item.title}
+                    </Text>
+                    <Text style={styles.timeStamp}>{dayjs(item.createdAt).fromNow()}</Text>
+                  </View>
+                  <Text style={styles.notifMessage} numberOfLines={1}>{item.message}</Text>
+                </View>
+              </TouchableOpacity>
+            </Animatable.View>
           ))
         ) : (
           <View style={styles.emptyState}>
-            <MaterialCommunityIcons name="bell-off-outline" size={60} color={UNIVERSITY_RED + '30'} />
+            <MaterialCommunityIcons name="shield-off-outline" size={60} color="#DDD" />
             <Text style={styles.emptyTitle}>Secure & Empty</Text>
-            <Text style={styles.emptySub}>Your official inbox is currently clear.</Text>
+            <Text style={styles.emptySub}>Your official inbox is currently clear of briefings.</Text>
           </View>
         )}
 
         <View style={styles.footer}>
-          <View style={styles.footerLine} />
-          <Text style={styles.footerMain}>LAIKIPIA UNIVERSITY ELECTORAL COMMISSION</Text>
-          <Text style={styles.footerSub}>SYSTEM SECURED • © 2026</Text>
+          <Text style={styles.footerMain}>L.U.E.C INFRASTRUCTURE</Text>
+          <Text style={styles.footerSub}>SESSION SECURE • 2026</Text>
         </View>
       </ScrollView>
 
-      {/* Message Detail Modal (Red & White Only) */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
-      >
+      {/* ENCRYPTED BRIEFING MODAL */}
+      <Modal animationType="fade" transparent={true} visible={modalVisible} onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <Animatable.View animation="zoomIn" duration={300} style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <View style={styles.modalHeaderIndicator}>
                 <View style={styles.redLine} />
-                <Text style={styles.officialTag}>Official Notice</Text>
+                <Text style={styles.officialTag}>OFFICIAL BRIEFING</Text>
               </View>
               <TouchableOpacity onPress={() => setModalVisible(false)}>
                 <Ionicons name="close-circle" size={32} color={UNIVERSITY_RED} />
@@ -222,13 +232,10 @@ export default function NotificationPage() {
               <Text style={styles.modalMessage}>{selectedNotif?.message}</Text>
             </ScrollView>
 
-            <TouchableOpacity 
-              style={styles.closeButton} 
-              onPress={() => setModalVisible(false)}
-            >
-              <Text style={styles.closeButtonText}>Close Briefing</Text>
+            <TouchableOpacity style={styles.closeButton} onPress={() => setModalVisible(false)}>
+              <Text style={styles.closeButtonText}>DISMISS BRIEFING</Text>
             </TouchableOpacity>
-          </View>
+          </Animatable.View>
         </View>
       </Modal>
 
@@ -237,61 +244,68 @@ export default function NotificationPage() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: BACKGROUND_GREY },
-  topNav: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 20, paddingVertical: 12, backgroundColor: UNIVERSITY_WHITE,
-    borderBottomWidth: 1, borderBottomColor: UNIVERSITY_RED + '20',
-  },
-  backButton: { padding: 8, borderRadius: 12, backgroundColor: '#FFF2F2' },
-  actionIcon: { padding: 8 },
-  topNavTitle: { fontSize: 13, fontWeight: "800", color: UNIVERSITY_RED, textTransform: 'uppercase', letterSpacing: 1.2 },
-  scrollContainer: { padding: 20, paddingBottom: 50 },
-  headerSection: { alignItems: 'center', marginBottom: 30 },
+  safeArea: { flex: 1, backgroundColor: BG_COLOR },
+  
+  // NAVIGATION
+  navBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 15, paddingVertical: 12, backgroundColor: CLEAN_WHITE, borderBottomWidth: 1, borderColor: "#EEE" },
+  navLeft: { flexDirection: "row", alignItems: "center" },
+  backChevron: { paddingRight: 8 },
+  navLogo: { width: 35, height: 35, marginRight: 10, resizeMode: 'contain' },
+  navTitle: { fontSize: 14, fontWeight: "900", color: UNIVERSITY_RED },
+  navSub: { fontSize: 8, color: "#999", fontWeight: "700", letterSpacing: 0.5 },
+  navRight: { padding: 8 },
+
+  scrollContainer: { paddingHorizontal: 20, paddingBottom: 50 },
+  
+  // HEADER
+  headerSection: { alignItems: 'center', marginTop: 25, marginBottom: 30 },
   iconWrapper: { position: 'relative', marginBottom: 15 },
-  iconInner: { width: 86, height: 86, borderRadius: 30, backgroundColor: UNIVERSITY_RED, justifyContent: 'center', alignItems: 'center' },
-  activeIndicator: { position: 'absolute', top: -2, right: -2, width: 22, height: 22, borderRadius: 11, backgroundColor: UNIVERSITY_WHITE, borderWidth: 3, borderColor: UNIVERSITY_RED },
-  pageTitle: { fontSize: 28, fontWeight: "900", color: UNIVERSITY_RED, letterSpacing: -0.5 },
-  pageSubTitle: { fontSize: 13, color: UNIVERSITY_RED, fontWeight: "700", marginTop: 4, textTransform: 'uppercase', opacity: 0.8 },
-  badgeRow: { marginTop: 15 },
-  statusBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF2F2', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 25, borderWidth: 1, borderColor: UNIVERSITY_RED + '30' },
-  statusDot: { width: 7, height: 7, borderRadius: 4, marginRight: 8 },
-  statusText: { fontSize: 12, fontWeight: '800', color: UNIVERSITY_RED },
+  iconInner: { width: 90, height: 90, borderRadius: 32, backgroundColor: UNIVERSITY_RED, justifyContent: 'center', alignItems: 'center', elevation: 4 },
+  activeIndicator: { position: 'absolute', top: -4, right: -4, width: 24, height: 24, borderRadius: 12, backgroundColor: CLEAN_WHITE, borderWidth: 4, borderColor: UNIVERSITY_RED },
+  pageTitle: { fontSize: 24, fontWeight: "900", color: DARK_NAVY },
+  pageSubTitle: { fontSize: 10, color: UNIVERSITY_RED, fontWeight: "800", marginTop: 4, textTransform: 'uppercase', letterSpacing: 1 },
+  statusBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF2F2', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 25, borderWidth: 1, borderColor: UNIVERSITY_RED + '20', marginTop: 15 },
+  statusDot: { width: 6, height: 6, borderRadius: 3, marginRight: 8 },
+  statusText: { fontSize: 10, fontWeight: '900', color: UNIVERSITY_RED },
+
   sectionDivider: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  sectionLabel: { fontSize: 13, fontWeight: "900", color: UNIVERSITY_RED, textTransform: 'uppercase' },
-  dividerLine: { flex: 1, height: 1, backgroundColor: UNIVERSITY_RED + '20', marginLeft: 15 },
-  notifCard: { flexDirection: 'row', backgroundColor: UNIVERSITY_WHITE, padding: 16, borderRadius: 22, marginBottom: 12, alignItems: 'center', borderWidth: 1, borderColor: UNIVERSITY_RED + '10' },
-  unreadCard: { borderColor: UNIVERSITY_RED + '40', borderLeftWidth: 6, borderLeftColor: UNIVERSITY_RED },
-  iconCircle: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#F5F5F5', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+  sectionLabel: { fontSize: 10, fontWeight: "900", color: "#AAA", textTransform: 'uppercase', letterSpacing: 1 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: "#EEE", marginLeft: 15 },
+
+  // CARDS
+  notifCard: { flexDirection: 'row', backgroundColor: CLEAN_WHITE, padding: 18, borderRadius: 20, marginBottom: 12, alignItems: 'center', borderWidth: 1, borderColor: "#EEE" },
+  unreadCard: { borderColor: UNIVERSITY_RED + '20', borderLeftWidth: 5, borderLeftColor: UNIVERSITY_RED },
+  iconCircle: { width: 44, height: 44, borderRadius: 15, backgroundColor: '#F8F8F8', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   unreadIconCircle: { backgroundColor: '#FFF2F2' },
   contentArea: { flex: 1 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  notifTitle: { fontSize: 15, color: UNIVERSITY_RED, fontWeight: '600', opacity: 0.7 },
-  boldTitle: { color: UNIVERSITY_RED, fontWeight: '900', opacity: 1 },
-  timeStamp: { fontSize: 10, color: UNIVERSITY_RED, fontWeight: '700', opacity: 0.5 },
-  notifMessage: { fontSize: 13, color: '#666', lineHeight: 18 },
-  loaderContainer: { flex: 1, alignItems: 'center', marginTop: 50 },
-  loadingText: { marginTop: 10, color: UNIVERSITY_RED, fontSize: 12, fontWeight: '600' },
-  emptyState: { alignItems: 'center', paddingVertical: 60 },
-  emptyTitle: { fontSize: 18, fontWeight: '800', color: UNIVERSITY_RED, marginTop: 15 },
-  emptySub: { fontSize: 14, color: UNIVERSITY_RED, opacity: 0.5, marginTop: 6, textAlign: 'center' },
-  footer: { marginTop: 40, alignItems: 'center' },
-  footerLine: { width: 40, height: 3, backgroundColor: UNIVERSITY_RED, borderRadius: 2, marginBottom: 15 },
-  footerMain: { fontSize: 10, fontWeight: '900', color: UNIVERSITY_RED, letterSpacing: 1 },
-  footerSub: { fontSize: 9, color: UNIVERSITY_RED, marginTop: 5, fontWeight: '600', opacity: 0.4 },
+  notifTitle: { fontSize: 15, color: "#777", fontWeight: '700' },
+  boldTitle: { color: DARK_NAVY, fontWeight: '900' },
+  timeStamp: { fontSize: 9, color: "#AAA", fontWeight: '700' },
+  notifMessage: { fontSize: 12, color: '#888', fontWeight: '500' },
 
-  // Modal Styles (Strictly Red & White)
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(211, 47, 47, 0.4)', justifyContent: 'center', padding: 20 },
-  modalContent: { backgroundColor: UNIVERSITY_WHITE, borderRadius: 24, padding: 24, maxHeight: '85%', borderWidth: 2, borderColor: UNIVERSITY_RED, shadowColor: UNIVERSITY_RED, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 10 },
+  loaderContainer: { flex: 1, alignItems: 'center', marginTop: 50 },
+  loadingText: { marginTop: 10, color: "#AAA", fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+  emptyState: { alignItems: 'center', paddingVertical: 60 },
+  emptyTitle: { fontSize: 18, fontWeight: '800', color: "#DDD", marginTop: 15 },
+  emptySub: { fontSize: 12, color: "#AAA", marginTop: 6, textAlign: 'center' },
+
+  footer: { marginTop: 40, alignItems: 'center', opacity: 0.3 },
+  footerMain: { fontSize: 9, fontWeight: '900', color: DARK_NAVY, letterSpacing: 1 },
+  footerSub: { fontSize: 8, color: DARK_NAVY, marginTop: 4, fontWeight: '700' },
+
+  // MODAL
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: 20 },
+  modalContent: { backgroundColor: CLEAN_WHITE, borderRadius: 28, padding: 25, maxHeight: '85%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   modalHeaderIndicator: { flexDirection: 'row', alignItems: 'center' },
   redLine: { width: 4, height: 20, backgroundColor: UNIVERSITY_RED, marginRight: 10, borderRadius: 2 },
-  officialTag: { fontSize: 12, fontWeight: '800', color: UNIVERSITY_RED, textTransform: 'uppercase' },
+  officialTag: { fontSize: 11, fontWeight: '900', color: UNIVERSITY_RED, letterSpacing: 1 },
   modalScroll: { paddingBottom: 20 },
-  modalTitle: { fontSize: 24, fontWeight: '900', color: UNIVERSITY_RED, marginBottom: 8 },
-  modalTime: { fontSize: 12, color: UNIVERSITY_RED, fontWeight: '700', opacity: 0.6 },
-  modalDivider: { height: 1, backgroundColor: UNIVERSITY_RED + '20', marginVertical: 15 },
-  modalMessage: { fontSize: 16, color: '#444', lineHeight: 24, fontWeight: '400' },
-  closeButton: { backgroundColor: UNIVERSITY_RED, padding: 18, borderRadius: 12, alignItems: 'center', marginTop: 10 },
-  closeButtonText: { color: UNIVERSITY_WHITE, fontWeight: '900', fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 }
+  modalTitle: { fontSize: 22, fontWeight: '900', color: DARK_NAVY, marginBottom: 8 },
+  modalTime: { fontSize: 11, color: "#AAA", fontWeight: '700' },
+  modalDivider: { height: 1, backgroundColor: "#EEE", marginVertical: 15 },
+  modalMessage: { fontSize: 15, color: '#444', lineHeight: 24, fontWeight: '500' },
+  closeButton: { backgroundColor: UNIVERSITY_RED, paddingVertical: 18, borderRadius: 16, alignItems: 'center', marginTop: 10 },
+  closeButtonText: { color: CLEAN_WHITE, fontWeight: '900', fontSize: 14, letterSpacing: 1 }
 });

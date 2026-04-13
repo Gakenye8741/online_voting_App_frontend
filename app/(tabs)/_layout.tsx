@@ -59,10 +59,10 @@ function LockGuard({ children }: { children: React.ReactNode }) {
       const token = await registerForPushNotificationsAsync();
       
       // If we have a token and a logged-in user, sync to PostgreSQL
-      if (token && user?.id) {
+      if (token && user?.userId) {
         try {
           await registerPushToken({ 
-            userId: user.id, 
+            userId: user.userId, 
             pushToken: token 
           }).unwrap();
           console.log("✅ Push Token successfully synced to Backend");
@@ -118,7 +118,7 @@ function LockGuard({ children }: { children: React.ReactNode }) {
       if (notificationListener.current) notificationListener.current.remove();
       if (responseListener.current) responseListener.current.remove();
     };
-  }, [isOverlayVisible, user?.id]); // Re-run if user logs in to register token correctly
+  }, [isOverlayVisible, user?.userId]); // Re-run if user logs in to register token correctly
 
   const checkSessionTimeout = () => {
     if (backgroundTime.current) {

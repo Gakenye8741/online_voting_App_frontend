@@ -13,7 +13,6 @@ import {
   Modal,
   Animated,
   Easing,
-  // Alert removed in favor of Toast
 } from "react-native";
 import { StatusBar } from "expo-status-bar"; 
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -24,7 +23,6 @@ import { useRouter } from "expo-router";
 
 import {
   useGetAllElectionsQuery,
-  Election,
 } from "@/src/store/Apis/Election.Api";
 
 import {
@@ -71,7 +69,6 @@ const Toast = ({ visible, message, type = "success" }: { visible: boolean; messa
 };
 
 // --- QUICK STATS COMPONENT ---
-// Modified to show both Days and Remaining Elections
 const QuickStats = ({ candidateCount, positionCount, daysLeft, remainingElections }: { candidateCount: number, positionCount: number, daysLeft: number, remainingElections: number }) => {
   const stats = [
     { label: "Candidates", value: candidateCount, icon: "people-circle" },
@@ -117,47 +114,6 @@ const ElectionFAQ = () => {
           )}
         </TouchableOpacity>
       ))}
-    </View>
-  );
-};
-
-// --- News & Announcements Component ---
-const Announcements = () => {
-  const news = [
-    "🗳️ Online voting is officially open! Cast your vote from anywhere. 🛡️ Blockchain Security: All votes are being recorded on the Sepolia Testnet.",
-  ];
-
-  const scrollX = useRef(new Animated.Value(0)).current;
-  const [containerWidth, setContainerWidth] = useState(0);
-  const [textWidth, setTextWidth] = useState(0);
-
-  useEffect(() => {
-    if (textWidth > 0 && containerWidth > 0) {
-      const fullDistance = textWidth + containerWidth;
-      Animated.loop(
-        Animated.timing(scrollX, {
-          toValue: -textWidth,
-          duration: fullDistance * 70,
-          easing: Easing.linear,
-          useNativeDriver: true,
-        })
-      ).start();
-    }
-  }, [textWidth, containerWidth]);
-
-  return (
-    <View style={styles.newsSection}>
-      <Text style={styles.sectionTitle}>Important Notices</Text>
-      <View style={styles.tickerContainer} onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}>
-        <View style={styles.tickerBadge}>
-          <Text style={styles.tickerBadgeText}>LIVE</Text>
-        </View>
-        <Animated.View style={[styles.tickerWrapper, { transform: [{ translateX: scrollX }] }]}>
-          <Text style={styles.tickerText} onLayout={(e) => setTextWidth(e.nativeEvent.layout.width)}>
-            {news.join("      •      ")}
-          </Text>
-        </Animated.View>
-      </View>
     </View>
   );
 };
@@ -285,8 +241,6 @@ export default function Home() {
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [positionsMap, setPositionsMap] = useState<Record<string, string>>({});
-  
-  // Toast State
   const [toastVisible, setToastVisible] = useState(false);
 
   useEffect(() => {
@@ -340,6 +294,7 @@ export default function Home() {
   const { data: electionsData, refetch: refetchElections, isLoading: isLoadingElections } = useGetAllElectionsQuery();
   const { data: userCountData, refetch: refetchUserCount } = useGetUsersCountQuery();
 
+  // Find the latest election based on createdAt
   const sortedElections = useMemo(() => {
     return electionsData?.elections 
       ? [...electionsData.elections].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -348,9 +303,17 @@ export default function Home() {
 
   const latestElection = sortedElections[0];
   const latestElectionId = latestElection?.id || "";
-  const roadmapStatus = latestElection?.status ?? "upcoming";
+  
+  // LOGIC UPDATE: Determine roadmap status based on delegate date
+  const roadmapStatus = useMemo(() => {
+    if (!latestElection) return "upcoming";
+    const now = new Date().getTime();
+    if (now < new Date(latestElection.start_date).getTime()) return "upcoming";
+    if (now < new Date(latestElection.end_date).getTime()) return "ongoing";
+    if (now < new Date(latestElection.delegate_end_date).getTime()) return "tallying";
+    return "ended";
+  }, [latestElection]);
 
-  // Logic for counting future/remaining elections
   const remainingElectionsCount = useMemo(() => {
     const now = new Date().getTime();
     return sortedElections.filter(e => new Date(e.start_date).getTime() > now).length;
@@ -359,21 +322,26 @@ export default function Home() {
   const { data: allCandidatesData, isLoading: isLoadingAll } = useGetCandidatesByElectionQuery(latestElectionId, { skip: !latestElectionId });
   const { data: resultsData, refetch: refetchResults, isLoading: isLoadingResults } = useGetElectionResultsQuery(latestElectionId, { skip: !latestElectionId });
 
-  const { totalVotes, turnoutPercentage } = useMemo(() => {
+  const { totalVotes } = useMemo(() => {
     const rawResults = (resultsData?.data || []) as any[];
     const total = rawResults.reduce((acc, curr) => acc + Number(curr.votes_count || 0), 0);
-    const registered = userCountData?.count || 0;
-    const turnout = registered > 0 ? (total / registered) * 100 : 0;
-    return { totalVotes: total, turnoutPercentage: turnout };
-  }, [resultsData, userCountData]);
+    return { totalVotes: total };
+  }, [resultsData]);
 
+  // UPDATED: Filter to only show candidates from the latest election
   const candidates = useMemo(() => {
     let list = allCandidatesData?.candidates || [];
+    
+    // Safety check to ensure we only show candidates linked to the latest ID
+    if (latestElectionId) {
+      list = list.filter(c => c.election_id === latestElectionId);
+    }
+
     if (search) {
       list = list.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
     }
     return list;
-  }, [allCandidatesData, search]);
+  }, [allCandidatesData, search, latestElectionId]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -441,40 +409,81 @@ export default function Home() {
         </View>
 
         <QuickStats 
-           candidateCount={allCandidatesData?.candidates?.length || 0} 
+           candidateCount={candidates.length} 
            positionCount={Object.keys(positionsMap).length}
            daysLeft={latestElection ? getDaysDiff(latestElection.start_date) : 0}
            remainingElections={remainingElectionsCount}
         />
 
-        <Animatable.View animation="fadeInUp" duration={1000} style={styles.electionCard}>
-          <View style={styles.cardHeader}>
-             <Text style={styles.cardTitle}>{latestElection?.name || "No election available"}</Text>
-             {latestElection?.status === 'ongoing' && (
-                <View style={styles.liveBadge}><Text style={styles.liveBadgeText}>LIVE</Text></View>
-             )}
+       <Animatable.View animation="fadeInUp" duration={1000} style={styles.electionCard}>
+  <View style={styles.cardHeader}>
+    <Text style={styles.cardTitle}>
+      {latestElection?.name || "No election available"}
+    </Text>
+    {/* Dynamic Status Badge */}
+    {latestElection?.status === 'ongoing' ? (
+      <View style={styles.liveBadge}>
+        <Text style={styles.liveBadgeText}>LIVE</Text>
+      </View>
+    ) : (
+      <View style={[styles.liveBadge, { backgroundColor: '#666' }]}>
+        <Text style={styles.liveBadgeText}>
+          {latestElection?.status?.toUpperCase() || "UPCOMING"}
+        </Text>
+      </View>
+    )}
+  </View>
+  
+  {isLoadingElections || isLoadingResults ? (
+    <ActivityIndicator size="small" color="#c8102e" />
+  ) : latestElection ? (
+    <>
+      {/* Logic for Countdown and Status Display */}
+      {new Date(latestElection.start_date).getTime() > new Date().getTime() ? (
+        // 1. Election hasn't started yet
+        <CountdownTimer 
+          targetDate={latestElection.start_date} 
+          label="Polls Open In:" 
+        />
+      ) : new Date(latestElection.end_date).getTime() > new Date().getTime() ? (
+        // 2. Election is currently happening
+        <View>
+          <CountdownTimer 
+            targetDate={latestElection.end_date} 
+            label="Polls Close In:" 
+          />
+          <ParticipationTracker 
+            totalVotes={totalVotes} 
+            totalVoters={userCountData?.count || 0} 
+          />
+        </View>
+      ) : new Date(latestElection.delegate_end_date).getTime() > new Date().getTime() ? (
+        // 3. Main election closed, but Delegate Period is active WITH COUNTDOWN
+        <View>
+          <View style={styles.delegateInfoBox}>
+            <Text style={styles.delegateLabel}>Delegate Voting Period Active</Text>
+            <Text style={styles.delegateTime}>
+              Official results are being finalized by delegates.
+            </Text>
           </View>
-          
-          {isLoadingElections || isLoadingResults ? (
-            <ActivityIndicator size="small" color="#c8102e" />
-          ) : latestElection ? (
-            <>
-              {new Date(latestElection.start_date).getTime() > new Date().getTime() ? (
-                <CountdownTimer targetDate={latestElection.start_date} label="Polls Open In:" />
-              ) : new Date(latestElection.end_date).getTime() > new Date().getTime() ? (
-                <CountdownTimer targetDate={latestElection.end_date} label="Polls Close In:" />
-              ) : (
-                <View style={styles.endedTag}><Text style={styles.statusEnded}>Election Closed</Text></View>
-              )}
-              {latestElection.status === 'ongoing' && (
-                <ParticipationTracker 
-                  totalVotes={totalVotes} 
-                  totalVoters={userCountData?.count || 0} 
-                />
-              )}
-            </>
-          ) : null}
-        </Animatable.View>
+          <CountdownTimer 
+            targetDate={latestElection.delegate_end_date} 
+            label="Delegate Voting Ends In:" 
+          />
+        </View>
+      ) : (
+        // 4. Everything is finished
+        <View style={styles.endedTag}>
+          <Text style={styles.statusEnded}>Election & Delegate Period Closed</Text>
+        </View>
+      )}
+      
+      <Text style={{ fontSize: 10, color: '#999', marginTop: 10, textAlign: 'center' }}>
+        Ref: {latestElection.id.substring(0, 8)}...
+      </Text>
+    </>
+  ) : null}
+</Animatable.View>
 
         <View style={styles.trustCard}>
            <View style={styles.trustIconBg}><Ionicons name="shield-checkmark" size={24} color="#fff" /></View>
@@ -535,29 +544,26 @@ export default function Home() {
         <Modal visible={modalVisible} transparent animationType="fade">
           <View style={styles.modalOverlay}>
             <Animatable.View animation="zoomIn" duration={300} style={styles.modalCard}>
-              {selectedCandidate && <>
-                <div style={styles.modalHeader}>
-                   <div style={{ flex: 1 }}>
-                      <Text style={styles.modalName}>{selectedCandidate.name}</Text>
-                      <Text style={styles.modalPosition}>{positionsMap[selectedCandidate.position_id] || "Position"}</Text>
-                   </div>
-                   <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeModalBtn}>
-                      <Ionicons name="close" size={24} color="#333" />
-                   </TouchableOpacity>
-                </div>
-                <div style={styles.manifestoContainer}>
-                   <Text style={styles.manifestoTitle}>My Manifesto Preview</Text>
-                   <Text style={styles.modalManifesto} numberOfLines={4}>
-                      {selectedCandidate.manifesto || "The candidate has not provided a manifesto yet."}
-                   </Text>
-                </div>
-              </>}
-              <TouchableOpacity 
-                style={styles.closeButton} 
-                onPress={() => handleVisitCandidate(selectedCandidate?.id || "")}
-              >
-                <Text style={styles.closeButtonText}>View Full Profile</Text>
-              </TouchableOpacity>
+              {selectedCandidate && (
+                <>
+                  <View style={styles.modalHeader}>
+                     <View style={{ flex: 1 }}>
+                        <Text style={styles.modalName}>{selectedCandidate.name}</Text>
+                        <Text style={styles.modalPosition}>{positionsMap[selectedCandidate.position_id] || "Position"}</Text>
+                     </View>
+                     <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeModalBtn}>
+                        <Ionicons name="close" size={24} color="#333" />
+                     </TouchableOpacity>
+                  </View>
+                  <View style={styles.manifestoContainer}>
+                     <Text style={styles.manifestoTitle}>My Manifesto Preview</Text>
+                     <Text style={styles.modalManifesto} numberOfLines={4}>
+                        {selectedCandidate.manifesto || "The candidate has not provided a manifesto yet."}
+                     </Text>
+                  </View>
+                </>
+              )}
+             
             </Animatable.View>
           </View>
         </Modal>
@@ -722,7 +728,7 @@ const styles = StyleSheet.create({
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, paddingHorizontal: 12, height: 48, borderWidth: 1, borderColor: '#E5E7EB' },
   searchBarInput: { flex: 1, marginLeft: 10, fontSize: 14, color: '#111' },
   
-  candidateCard: { width: 165, backgroundColor: "#fff", borderRadius: 24, padding: 15, marginRight: 15, elevation: 6, shadowColor: '#000', shadowOpacity: 0.08, alignItems: "center", borderWidth: 1, borderColor: '#F3F4F6' },
+  candidateCard: { width: 165, backgroundColor: "#fff", borderRadius: 24, padding: 10, marginRight: 15, elevation: 6, shadowColor: '#000', shadowOpacity: 0.08, alignItems: "center", borderWidth: 1, borderColor: '#F3F4F6' },
   candidatePhoto: { width: 85, height: 85, borderRadius: 20, marginBottom: 12 },
   initialsCircle: { width: 85, height: 85, borderRadius: 20, backgroundColor: "#c8102e", justifyContent: "center", alignItems: "center", marginBottom: 12 },
   initialsText: { color: "#fff", fontSize: 30, fontWeight: "900" },
@@ -755,5 +761,28 @@ const styles = StyleSheet.create({
   modalManifesto: { fontSize: 15, color: "#4B5563", lineHeight: 24, fontWeight: '500' },
   closeButton: { backgroundColor: "#111", borderRadius: 18, paddingVertical: 16, alignItems: "center", marginTop: 10, elevation: 4 },
   closeButtonText: { color: "#fff", fontSize: 14, fontWeight: "900", textTransform: 'uppercase', letterSpacing: 1 },
-  footerSpace: { height: 40 }
+  footerSpace: { height: 40 },
+  delegateInfoBox: {
+    backgroundColor: "#fef2f2",
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: "#fee2e2",
+    alignItems: "center",
+  },
+  delegateLabel: {
+    color: "#c8102e",
+    fontSize: 14,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  delegateTime: {
+    color: "#4b5563",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  
+
 });

@@ -11,10 +11,14 @@ import {
   Platform,
   LayoutAnimation,
   UIManager,
+  Image,
+  Share,
+  Clipboard,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, Feather, MaterialCommunityIcons, Octicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
+import Toast from 'react-native-toast-message';
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -72,27 +76,37 @@ export default function AnimatedFAQ() {
     });
   }, [query, activeCat]);
 
-  // CUSTOM SPRING ANIMATION
   const toggleAccordion = (id: number) => {
-    LayoutAnimation.configureNext({
-      duration: 400,
-      create: { type: 'spring', property: 'opacity', springDamping: 0.7 },
-      update: { type: 'spring', springDamping: 0.8 },
-      delete: { type: 'spring', property: 'opacity', springDamping: 0.7 },
-    });
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpandedId(expandedId === id ? null : id);
+  };
+
+  const handleCopy = (text: string) => {
+    Clipboard.setString(text);
+    Toast.show({ type: 'success', text1: 'Copied to Clipboard', position: 'top' });
+  };
+
+  const handleShare = async (q: string, a: string) => {
+    try {
+      await Share.share({ message: `Laikipia E-Vote FAQ\n\nQ: ${q}\n\nA: ${a}` });
+    } catch (error) {
+      console.log(error);
+    }
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={UNIVERSITY_WHITE} />
       
-      {/* HEADER NAVIGATION */}
+      {/* BRANDED HEADER */}
       <View style={styles.topNav}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back-outline" size={24} color={UNIVERSITY_RED} />
-        </TouchableOpacity>
-        <Text style={styles.navTitle}>E-Voter Support</Text>
+        <View style={styles.navLeft}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+            <Ionicons name="chevron-back" size={26} color={UNIVERSITY_RED} />
+          </TouchableOpacity>
+          <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.navLogo} />
+        </View>
+        <Text style={styles.navTitle}>Voter Support</Text>
         <TouchableOpacity onPress={() => Linking.openURL('tel:+254789757457')}>
           <MaterialCommunityIcons name="headset" size={24} color={UNIVERSITY_RED} />
         </TouchableOpacity>
@@ -100,7 +114,7 @@ export default function AnimatedFAQ() {
 
       <ScrollView contentContainerStyle={styles.scrollBody} showsVerticalScrollIndicator={false}>
         
-        {/* HERO BRANDING */}
+        {/* HERO */}
         <View style={styles.heroSection}>
           <Text style={styles.heroSub}>Laikipia University</Text>
           <Text style={styles.heroTitle}>Smart FAQ Center</Text>
@@ -110,7 +124,7 @@ export default function AnimatedFAQ() {
           </View>
         </View>
 
-        {/* SEARCH BAR */}
+        {/* SEARCH */}
         <View style={styles.searchBox}>
           <Feather name="search" size={18} color="#999" />
           <TextInput 
@@ -125,7 +139,7 @@ export default function AnimatedFAQ() {
           />
         </View>
 
-        {/* HORIZONTAL FILTERS */}
+        {/* FILTERS */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterBar}>
           {categories.map((c) => (
             <TouchableOpacity 
@@ -141,21 +155,11 @@ export default function AnimatedFAQ() {
           ))}
         </ScrollView>
 
-        {/* FAQ LIST WITH ANIMATED DROPDOWNS */}
+        {/* FAQ LIST */}
         <View style={styles.listContainer}>
           {filteredFaqs.map((faq) => (
-            <View 
-                key={faq.id} 
-                style={[
-                    styles.faqCard, 
-                    expandedId === faq.id && styles.faqCardActive
-                ]}
-            >
-                <TouchableOpacity 
-                    onPress={() => toggleAccordion(faq.id)}
-                    activeOpacity={0.7}
-                    style={styles.faqHeader}
-                >
+            <View key={faq.id} style={[styles.faqCard, expandedId === faq.id && styles.faqCardActive]}>
+                <TouchableOpacity onPress={() => toggleAccordion(faq.id)} activeOpacity={0.7} style={styles.faqHeader}>
                     <View style={styles.qBox}>
                         <Text style={styles.qText}>Q</Text>
                     </View>
@@ -175,10 +179,16 @@ export default function AnimatedFAQ() {
                             <View style={styles.tagPill}>
                                 <Text style={styles.tagPillText}>{faq.cat}</Text>
                             </View>
-                            <TouchableOpacity style={styles.copyBtn}>
-                                <Feather name="copy" size={14} color={UNIVERSITY_RED} />
-                                <Text style={styles.copyBtnText}>Copy Info</Text>
-                            </TouchableOpacity>
+                            <View style={styles.actionRow}>
+                              <TouchableOpacity style={styles.iconActionBtn} onPress={() => handleCopy(faq.a)}>
+                                  <Feather name="copy" size={14} color={UNIVERSITY_RED} />
+                                  <Text style={styles.iconActionText}>Copy</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity style={[styles.iconActionBtn, { marginLeft: 12 }]} onPress={() => handleShare(faq.q, faq.a)}>
+                                  <Feather name="share-2" size={14} color={UNIVERSITY_RED} />
+                                  <Text style={styles.iconActionText}>Share</Text>
+                              </TouchableOpacity>
+                            </View>
                         </View>
                     </View>
                 )}
@@ -186,14 +196,11 @@ export default function AnimatedFAQ() {
           ))}
         </View>
 
-        {/* SUPPORT ESCALATION */}
+        {/* ESCALATION */}
         <View style={styles.contactSection}>
             <Text style={styles.contactTitle}>Couldn't find an answer?</Text>
             <Text style={styles.contactDesc}>Our student helpdesk is live 24/7 during the election period.</Text>
-            <TouchableOpacity 
-                style={styles.ctaButton}
-                onPress={() => Linking.openURL('https://wa.me/254789757457')}
-            >
+            <TouchableOpacity style={styles.ctaButton} onPress={() => Linking.openURL('https://wa.me/254789757457')}>
                 <Ionicons name="logo-whatsapp" size={20} color={UNIVERSITY_WHITE} />
                 <Text style={styles.ctaButtonText}>Message UEC Helpdesk</Text>
             </TouchableOpacity>
@@ -207,6 +214,7 @@ export default function AnimatedFAQ() {
         </View>
 
       </ScrollView>
+      <Toast />
     </SafeAreaView>
   );
 }
@@ -215,9 +223,11 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: UNIVERSITY_WHITE },
   topNav: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: BORDER_COLOR
+    paddingHorizontal: 16, height: 75, borderBottomWidth: 1, borderBottomColor: BORDER_COLOR
   },
-  backBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: ACCENT_RED_LIGHT, justifyContent: 'center', alignItems: 'center' },
+  navLeft: { flexDirection: 'row', alignItems: 'center' },
+  backBtn: { padding: 4, marginRight: 8 },
+  navLogo: { width: 38, height: 38, resizeMode: 'contain' },
   navTitle: { fontSize: 13, fontWeight: "900", color: PRIMARY_DARK, textTransform: 'uppercase', letterSpacing: 1 },
   
   scrollBody: { padding: 20 },
@@ -255,8 +265,10 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20 },
   tagPill: { backgroundColor: '#F0F0F0', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
   tagPillText: { fontSize: 9, fontWeight: '900', color: '#AAA', textTransform: 'uppercase' },
-  copyBtn: { flexDirection: 'row', alignItems: 'center' },
-  copyBtnText: { fontSize: 11, fontWeight: '800', color: UNIVERSITY_RED, marginLeft: 5 },
+  
+  actionRow: { flexDirection: 'row', alignItems: 'center' },
+  iconActionBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: ACCENT_RED_LIGHT, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
+  iconActionText: { fontSize: 11, fontWeight: '800', color: UNIVERSITY_RED, marginLeft: 5 },
 
   contactSection: { backgroundColor: PRIMARY_DARK, padding: 30, borderRadius: 32, alignItems: 'center' },
   contactTitle: { color: UNIVERSITY_WHITE, fontSize: 18, fontWeight: '900' },

@@ -52,13 +52,12 @@ export default function CandidateDetailPage() {
     description: "",
   });
 
-  // 1. Fetch Candidate Data - Ensuring userId is present
+  // 1. Fetch Candidate Data
   const { data, isLoading, isError, refetch } = useGetCandidateByUserIdQuery(
     userId ?? "", 
     { skip: !userId }
   );
   
-  // Safely extract candidate based on your backend response structure
   const candidate = data?.candidate;
 
   // 2. Fetch Election & Position
@@ -67,7 +66,6 @@ export default function CandidateDetailPage() {
 
   // 3. Coalition Specific Data & Mutations
   const { data: availableCoalitions, isLoading: loadingList } = useGetCoalitionsByElectionQuery(candidate?.election_id ?? "", { skip: !candidate?.election_id });
-  
   const { data: slateData, isLoading: loadingSlate } = useGetCoalitionFullSlateQuery(candidate?.coalition_id ?? "", { skip: !candidate?.coalition_id });
   
   const [createCoalition, { isLoading: isCreating }] = useCreateCoalitionMutation();
@@ -144,7 +142,6 @@ export default function CandidateDetailPage() {
     );
   };
 
-  // --- LOADING & ERROR STATES ---
   if (isLoading) {
     return (
       <View style={styles.centered}>
@@ -154,7 +151,6 @@ export default function CandidateDetailPage() {
     );
   }
 
-  // Handle case where user isn't a candidate or server is waking up
   if (isError || !candidate) {
     return (
       <View style={styles.centered}>
@@ -207,7 +203,7 @@ export default function CandidateDetailPage() {
             <Text style={styles.coalitionSubText}>Select an existing coalition to join their campaign slate.</Text>
             <ScrollView style={{ marginTop: 15 }}>
               {loadingList ? <ActivityIndicator color={DARK_NAVY} /> : 
-                availableCoalitions?.coalitions?.map((c) => (
+                availableCoalitions?.coalitions?.map((c: any) => (
                   <TouchableOpacity key={c.id} style={styles.joinItem} onPress={() => handleJoinSelection(c.id)}>
                     <View style={[styles.colorDot, { backgroundColor: c.color_code || DARK_NAVY }]} />
                     <View>
@@ -221,12 +217,22 @@ export default function CandidateDetailPage() {
         </View>
       </Modal>
 
-      <View style={styles.topNav}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={22} color={UNIVERSITY_RED} />
+      {/* UPDATED NAVBAR WITH LOGO AND CHEVRON */}
+      <View style={styles.navbar}>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backChevron}>
+             <Ionicons name="chevron-back" size={26} color={UNIVERSITY_RED} />
+          </TouchableOpacity>
+          <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.logo} />
+          <View>
+            <Text style={styles.headerTitle}>Candidate Hub</Text>
+            <Text style={styles.headerSub}>NODE: {candidate.id.slice(0, 8).toUpperCase()}</Text>
+          </View>
+        </View>
+        
+        <TouchableOpacity onPress={() => refetch()} style={styles.refreshBtn}>
+          <Ionicons name="reload-circle-outline" size={24} color={UNIVERSITY_RED} />
         </TouchableOpacity>
-        <Text style={styles.topNavTitle}>Official Candidate</Text>
-        <TouchableOpacity style={styles.shareIconButton} onPress={() => refetch()}><Ionicons name="sync" size={22} color={UNIVERSITY_RED} /></TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
@@ -253,7 +259,6 @@ export default function CandidateDetailPage() {
           </View>
         </View>
 
-        {/* COALITION INTEGRATION CARD */}
         <View style={[styles.coalitionCard, candidate.coalition_id && { borderColor: slateData?.coalition.color_code || DARK_NAVY }]}>
           <View style={styles.coalitionContent}>
              <View style={styles.coalitionHeader}>
@@ -278,7 +283,6 @@ export default function CandidateDetailPage() {
           )}
         </View>
 
-        {/* COALITION SLATE MEMBERS */}
         {candidate.coalition_id && (
             <View style={styles.slateSection}>
                 <View style={styles.sectionHeader}>
@@ -344,10 +348,25 @@ const DataBox = ({ icon, label, val, color }: any) => (
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#FAFAFA" },
   centered: { flex: 1, justifyContent: "center", alignItems: "center", padding: 20 },
-  topNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 12, backgroundColor: UNIVERSITY_WHITE },
-  backButton: { padding: 8, borderRadius: 12, backgroundColor: '#FFF2F2' },
-  shareIconButton: { padding: 8 },
-  topNavTitle: { fontSize: 13, fontWeight: "800", color: "#666", textTransform: 'uppercase' },
+  
+  // NAVBAR UPDATED
+  navbar: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    justifyContent: "space-between", 
+    paddingHorizontal: 16, 
+    height: 70, 
+    backgroundColor: UNIVERSITY_WHITE, 
+    borderBottomWidth: 1, 
+    borderBottomColor: "#eee" 
+  },
+  headerLeft: { flexDirection: 'row', alignItems: 'center' },
+  backChevron: { marginRight: 8 },
+  logo: { width: 42, height: 42, resizeMode: 'contain', marginRight: 10 },
+  headerTitle: { fontSize: 16, fontWeight: '900', color: UNIVERSITY_RED, textTransform: 'uppercase' },
+  headerSub: { fontSize: 10, color: '#777', fontWeight: 'bold' },
+  refreshBtn: { padding: 5 },
+
   container: { padding: 20, paddingBottom: 60 },
   headerSection: { alignItems: 'center', marginBottom: 25 },
   avatarWrapper: { marginBottom: 15, position: 'relative' },

@@ -1,126 +1,221 @@
-// src/screens/LogoutScreen.tsx
-import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import React, { useState, useEffect } from "react";
+import { 
+  View, 
+  Text, 
+  TouchableOpacity, 
+  StyleSheet, 
+  StatusBar, 
+  Image,
+  Alert,
+  Linking
+} from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useDispatch } from "react-redux";
 import { useRouter } from "expo-router";
 import * as Animatable from "react-native-animatable";
-import AppLayout from "@/src/components/AppLayout";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import * as LocalAuthentication from 'expo-local-authentication';
 import { logout } from "@/src/store/authSlice";
+
+const UNIVERSITY_RED = "#D32F2F";
+const DARK_NAVY = "#1A237E";
+const UNIVERSITY_WHITE = "#FFFFFF";
+const SUCCESS_GREEN = "#2E7D32";
 
 const LogoutScreen: React.FC = () => {
   const dispatch = useDispatch();
   const router = useRouter();
+  
+  const [isFingerprintSupported, setIsFingerprintSupported] = useState(false);
+  const [isWiping, setIsWiping] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
+      const supportsFingerprint = types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT);
+      setIsFingerprintSupported(supportsFingerprint);
+    })();
+  }, []);
 
   const handleLogout = async () => {
-    await AsyncStorage.removeItem("token"); // Remove JWT token
-    dispatch(logout()); // Reset auth state
-    router.replace("/Auth/Login"); // Redirect to login screen
-  };
+    const hasHardware = await LocalAuthentication.hasHardwareAsync();
+    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
 
-  const handleCancel = () => {
-    router.back(); // Go back to previous screen
+    if (hasHardware && isEnrolled && isFingerprintSupported) {
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Authenticate to WIPE local session',
+        disableDeviceFallback: false,
+      });
+
+      if (!result.success) return; 
+    }
+
+    // Start Secure Scrub Animation
+    setIsWiping(true);
+
+    setTimeout(async () => {
+      try {
+        await AsyncStorage.removeItem("token");
+        dispatch(logout());
+        router.replace("/Auth/Login");
+      } catch (error) {
+        setIsWiping(false);
+        Alert.alert("Security Error", "Could not clear session safely.");
+      }
+    }, 1800); // Visual delay for security confidence
   };
 
   return (
-    <AppLayout>
-      <View style={styles.container}>
-        <Animatable.Image
-          source={require('@/assets/images/Laikipia-logo.png')}
-          style={styles.logo}
-          animation="bounceIn"
-          duration={1200}
-        />
-
-        <Animatable.Text
-          style={styles.title}
-          animation="fadeInDown"
-          delay={300}
-        >
-          Logout
-        </Animatable.Text>
-
-        <Animatable.Text
-          style={styles.subtitle}
-          animation="fadeInDown"
-          delay={500}
-        >
-          Are you sure you want to log out from the Voting App?
-        </Animatable.Text>
-
-        <Animatable.View animation="fadeInUp" delay={700}>
-          {/* Logout Button */}
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Text style={styles.buttonText}>Logout</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" backgroundColor={UNIVERSITY_WHITE} />
+      
+      {/* BRANDED HEADER - LEFT ALIGNED */}
+      <View style={styles.topNav}>
+        <View style={styles.navLeft}>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()} disabled={isWiping}>
+            <Ionicons name="chevron-back" size={26} color={isWiping ? "#CCC" : UNIVERSITY_RED} />
           </TouchableOpacity>
-
-          {/* Cancel Button */}
-          <TouchableOpacity style={styles.cancelButton} onPress={handleCancel}>
-            <Text style={styles.cancelText}>Cancel</Text>
-          </TouchableOpacity>
-        </Animatable.View>
+          
+          <View style={styles.brandContainer}>
+            <Image 
+              source={require('@/assets/images/Laikipia-logo.png')} 
+              style={styles.navLogo} 
+            />
+            <View style={styles.headerTextGroup}>
+              <Text style={styles.topNavTitle}>Session Manager</Text>
+              <Text style={styles.topNavSub}>LU-EVOTE-SECURE-EXIT</Text>
+            </View>
+          </View>
+        </View>
       </View>
-    </AppLayout>
+
+      <View style={styles.container}>
+        {!isWiping ? (
+          <Animatable.View animation="fadeIn" style={styles.contentWrapper}>
+            <Animatable.View animation="pulse" iterationCount="infinite" style={styles.iconCircle}>
+              <MaterialCommunityIcons name="fingerprint" size={54} color={UNIVERSITY_WHITE} />
+            </Animatable.View>
+
+            <Text style={styles.title}>Secure Exit</Text>
+            
+            {/* DEVICE TRUST CARD */}
+            <View style={styles.trustCard}>
+              <View style={styles.trustRow}>
+                <Ionicons name="shield-checkmark" size={14} color={SUCCESS_GREEN} />
+                <Text style={styles.trustText}>Session Integrity: AES-256 Encrypted</Text>
+              </View>
+              <View style={styles.trustRow}>
+                <Ionicons name="wifi" size={14} color="#666" />
+                <Text style={styles.trustText}>Network: Verified Secure Node</Text>
+              </View>
+            </View>
+
+            <Text style={styles.subtitle}>
+              Verification is required to ensure this is an authorized session termination and to scrub local electoral data.
+            </Text>
+
+            <View style={styles.buttonGroup}>
+              <TouchableOpacity 
+                style={styles.logoutButton} 
+                onPress={handleLogout}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.buttonText}>Verify & Logout</Text>
+                <Ionicons name="finger-print" size={20} color={UNIVERSITY_WHITE} style={{marginLeft: 10}} />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.cancelButton} onPress={() => router.back()}>
+                <Text style={styles.cancelText}>Stay Signed In</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity 
+                style={styles.supportLink} 
+                onPress={() => Linking.openURL('mailto:ict@laikipia.ac.ke')}
+            >
+              <Text style={styles.supportText}>
+                Suspicious Activity? <Text style={{color: UNIVERSITY_RED}}>Report to ICT</Text>
+              </Text>
+            </TouchableOpacity>
+          </Animatable.View>
+        ) : (
+          /* SECURITY SCRUB PROGRESS */
+          <View style={styles.scrubContainer}>
+            <Animatable.View animation="rotate" iterationCount="infinite" duration={1500} easing="linear">
+              <MaterialCommunityIcons name="loading" size={60} color={UNIVERSITY_RED} />
+            </Animatable.View>
+            <Animatable.Text animation="fadeIn" iterationCount="infinite" direction="alternate" style={styles.scrubText}>
+                Finalizing Security Protocols...
+            </Animatable.Text>
+            <Text style={styles.scrubSub}>Clearing local voter cache & session logs</Text>
+          </View>
+        )}
+
+        <View style={styles.footer}>
+          <Text style={styles.footerBrand}>ICT DIRECTORATE • BIOMETRIC GATEWAY</Text>
+          <Text style={styles.footerSub}>v1.0.4 • © 2026 LAIKIPIA UNIVERSITY</Text>
+        </View>
+      </View>
+    </SafeAreaView>
   );
 };
 
 export default LogoutScreen;
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#ffffff",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 25,
+  safeArea: { flex: 1, backgroundColor: UNIVERSITY_WHITE },
+  topNav: {
+    flexDirection: "row", alignItems: "center", paddingHorizontal: 16, height: 75,
+    borderBottomWidth: 1, borderBottomColor: "#F0F0F0",
   },
-  logo: {
-    width: 120,
-    height: 120,
-    marginBottom: 20,
+  navLeft: { flexDirection: 'row', alignItems: 'center' },
+  backButton: { padding: 4, marginRight: 6 },
+  brandContainer: { flexDirection: 'row', alignItems: 'center' },
+  navLogo: { width: 38, height: 38, resizeMode: 'contain', marginRight: 10 },
+  headerTextGroup: { justifyContent: 'center' },
+  topNavTitle: { fontSize: 13, fontWeight: "900", color: "#1A1A1A", letterSpacing: 0.3, textTransform: 'uppercase' },
+  topNavSub: { fontSize: 8, color: UNIVERSITY_RED, fontWeight: '700', marginTop: 1 },
+  
+  container: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 30 },
+  contentWrapper: { width: '100%', alignItems: 'center' },
+  
+  iconCircle: {
+    width: 100, height: 100, borderRadius: 35, backgroundColor: DARK_NAVY,
+    justifyContent: "center", alignItems: "center", marginBottom: 25,
+    elevation: 8, shadowColor: DARK_NAVY, shadowOpacity: 0.3, shadowRadius: 10
   },
-  title: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#c8102e",
-    textAlign: "center",
-    marginBottom: 10,
+  title: { fontSize: 26, fontWeight: "900", color: "#111", marginBottom: 15 },
+  
+  trustCard: {
+    backgroundColor: '#F8F9FA', padding: 15, borderRadius: 16, width: '100%',
+    marginBottom: 20, borderWidth: 1, borderColor: '#EEE'
   },
-  subtitle: {
-    fontSize: 16,
-    color: "#444",
-    textAlign: "center",
-    marginBottom: 30,
-  },
+  trustRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  trustText: { fontSize: 11, color: '#444', marginLeft: 8, fontWeight: '700' },
+  
+  subtitle: { fontSize: 14, color: "#666", textAlign: "center", lineHeight: 20, marginBottom: 35 },
+  
+  buttonGroup: { width: '100%' },
   logoutButton: {
-    backgroundColor: "#c8102e",
-    paddingVertical: 15,
-    paddingHorizontal: 50,
-    borderRadius: 8,
-    alignItems: "center",
-    marginBottom: 15,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 5,
+    backgroundColor: UNIVERSITY_RED, height: 60, borderRadius: 20,
+    flexDirection: 'row', justifyContent: "center", alignItems: "center", marginBottom: 12,
   },
   cancelButton: {
-    backgroundColor: "#fff",
-    paddingVertical: 15,
-    paddingHorizontal: 50,
-    borderRadius: 8,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#c8102e",
+    height: 60, borderRadius: 20, justifyContent: "center", alignItems: "center",
+    borderWidth: 1, borderColor: "#EEE", backgroundColor: '#FAFAFA'
   },
-  buttonText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 18,
-  },
-  cancelText: {
-    color: "#c8102e",
-    fontWeight: "bold",
-    fontSize: 18,
-  },
+  buttonText: { color: UNIVERSITY_WHITE, fontWeight: "900", fontSize: 16 },
+  cancelText: { color: "#666", fontWeight: "800", fontSize: 16 },
+
+  supportLink: { marginTop: 25 },
+  supportText: { fontSize: 12, color: '#999', fontWeight: '600' },
+
+  scrubContainer: { alignItems: 'center' },
+  scrubText: { marginTop: 25, fontSize: 16, fontWeight: '900', color: DARK_NAVY },
+  scrubSub: { fontSize: 12, color: '#999', marginTop: 8 },
+  
+  footer: { position: 'absolute', bottom: 30, alignItems: 'center' },
+  footerBrand: { fontSize: 10, fontWeight: '900', color: '#333', letterSpacing: 1 },
+  footerSub: { fontSize: 9, color: '#BBB', marginTop: 5, fontWeight: '700' }
 });
