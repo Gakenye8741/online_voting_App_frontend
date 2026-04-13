@@ -93,9 +93,15 @@ export default function VoteScreen() {
   const [txProgress, setTxProgress] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [timeLeft, setTimeLeft] = useState("");
+  const [delegateTimeLeft, setDelegateTimeLeft] = useState("");
   const [isUrgent, setIsUrgent] = useState(false);
   const [electionStatus, setElectionStatus] = useState<"upcoming" | "ongoing" | "completed" | null>(null);
+  
+  // Modals
   const [reviewModalVisible, setReviewModalVisible] = useState(false);
+  const [slateConfirmVisible, setSlateConfirmVisible] = useState(false);
+  const [activeSlate, setActiveSlate] = useState<{name: string, candidates: any[], id: string} | null>(null);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
@@ -136,7 +142,6 @@ export default function VoteScreen() {
 
   const isUserADelegate = !!currentUserDelegateObject;
 
-  // Check if delegate has already voted
   const { data: delegateVoteData, refetch: refetchDelegateVote } = useGetMyDelegateVoteQuery(activeElection?.id || "", {
     skip: !activeElection || !isUserADelegate
   });
@@ -150,10 +155,9 @@ export default function VoteScreen() {
   const [castStandardVote] = useCastVoteMutation();
   const [castDelegateVote, { isLoading: isSubmitting }] = useCastDelegateVoteMutation();
 
-  // Unified logic to disable voting if either a standard vote or delegate vote exists
   const hasAlreadyVoted = useMemo(() => {
     if (isUserADelegate) {
-        return delegateVoteData?.voted === true;
+        return !!delegateVoteData?.vote?.transaction_hash || delegateVoteData?.voted === true;
     }
     const total = myVotesData?.data?.totalCast;
     return total && Number.parseInt(total.toString(), 10) > 0;
@@ -163,7 +167,6 @@ export default function VoteScreen() {
     return (myVotesData?.data?.votes as any[])?.map((v: any) => v.position_id) || [];
   }, [myVotesData]);
 
-  // Retrieve hash from either source
   const lastTxHash = useMemo(() => {
     if (isUserADelegate && delegateVoteData?.vote?.transaction_hash) {
         return delegateVoteData.vote.transaction_hash;
@@ -171,15 +174,13 @@ export default function VoteScreen() {
     return (myVotesData?.data?.votes as any[])?.[0]?.transaction_hash;
   }, [myVotesData, delegateVoteData, isUserADelegate]);
 
-  const calculateTime = useCallback((distance: number, prefix: string) => {
-    if (distance < 0) return;
+  const formatCountdown = (distance: number) => {
     const days = Math.floor(distance / (1000 * 60 * 60 * 24));
     const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
     const seconds = Math.floor((distance % (1000 * 60)) / 1000);
-    setIsUrgent(distance < 3600000 && electionStatus === "ongoing");
-    setTimeLeft(`${prefix}${days}d ${hours}h ${minutes}m ${seconds}s`);
-  }, [electionStatus]);
+    return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+  };
 
   useEffect(() => {
     if (!activeElection) return;
@@ -187,21 +188,35 @@ export default function VoteScreen() {
       const now = Date.now();
       const start = new Date(activeElection.start_date).getTime();
       const end = new Date(activeElection.end_date).getTime();
+      const delegateEnd = new Date(activeElection.delegate_end_date).getTime();
       
       if (now < start) {
         setElectionStatus("upcoming");
-        calculateTime(start - now, "Starts In: ");
+        setTimeLeft(`Starts In: ${formatCountdown(start - now)}`);
       } else if (now >= start && now <= end) {
         setElectionStatus("ongoing");
-        calculateTime(end - now, "");
+        setTimeLeft(formatCountdown(end - now));
+        setIsUrgent((end - now) < 3600000);
+      } else if (now > end && now <= delegateEnd) {
+        setElectionStatus("ongoing");
+        setTimeLeft("Standard Voting Ended");
+        setIsUrgent(false);
       } else {
         setElectionStatus("completed");
         setTimeLeft("ELECTION CLOSED");
         setIsUrgent(false);
       }
+
+      if (now < end) {
+        setDelegateTimeLeft(`Starts: ${formatCountdown(end - now)}`);
+      } else if (now >= end && now <= delegateEnd) {
+        setDelegateTimeLeft(`Ends: ${formatCountdown(delegateEnd - now)}`);
+      } else {
+        setDelegateTimeLeft("Delegate Phase Closed");
+      }
     }, 1000);
     return () => clearInterval(timer);
-  }, [activeElection, calculateTime]);
+  }, [activeElection]);
 
   useEffect(() => {
     const fetchPositions = async () => {
@@ -224,9 +239,11 @@ export default function VoteScreen() {
   const coalitionGroups = useMemo(() => {
     if (!candidatesData?.candidates || !isUserADelegate) return {};
     return candidatesData.candidates.reduce((acc: any, cand: any) => {
-        const coalName = cand.coalition_id ? (coalitionMap[cand.coalition_id] || "Unknown Coalition") : "Independent";
-        if (!acc[coalName]) acc[coalName] = [];
-        acc[coalName].push(cand);
+        if (cand.coalition_id) {
+            const coalName = coalitionMap[cand.coalition_id] || "Unknown Coalition";
+            if (!acc[coalName]) acc[coalName] = [];
+            acc[coalName].push(cand);
+        }
         return acc;
     }, {} as Record<string, any[]>);
   }, [candidatesData, isUserADelegate, coalitionMap]);
@@ -246,23 +263,31 @@ export default function VoteScreen() {
     setTimeout(() => setToastVisible(false), 3000);
   };
 
-  const handleCoalitionVote = async (coalitionName: string, candidates: any[]) => {
-      const coalitionId = Object.keys(coalitionMap).find(key => coalitionMap[key] === coalitionName) || coalitionName;
-      const auth = await LocalAuthentication.authenticateAsync({ promptMessage: `Confirm Slate Vote` });
+  const initiateSlateVote = (coalitionName: string, candidates: any[]) => {
+      const coalId = Object.keys(coalitionMap).find(key => coalitionMap[key] === coalitionName) || candidates[0].coalition_id;
+      setActiveSlate({ name: coalitionName, candidates, id: coalId });
+      setSlateConfirmVisible(true);
+  };
+
+  const handleFinalSlateVote = async () => {
+      if (!activeSlate || !currentUserDelegateObject) return;
+
+      const auth = await LocalAuthentication.authenticateAsync({ promptMessage: `Confirm Slate Vote for ${activeSlate.name}` });
       if (!auth.success) return;
 
+      setSlateConfirmVisible(false);
       try {
           setTxProgress(`Broadcasting Slate...`);
           await castDelegateVote({
-              delegate_id: currentUserDelegateObject!.delegate_id,
+              delegate_id: currentUserDelegateObject.delegate_id,
               election_id: activeElection!.id,
-              coalition_id: coalitionId,
-              position_id: candidates[0].position_id 
+              coalition_id: activeSlate.id,
+              position_id: activeSlate.candidates[0].position_id 
           }).unwrap();
           showSuccessToast(`Slate Vote Recorded!`);
           refetchDelegateVote();
       } catch (error: any) {
-          Alert.alert("Blockchain Error", error.data?.error || "Transaction failed.");
+          Alert.alert("Blockchain Error", error.data?.error || "Transaction failed. A vote for this coalition may already exist.");
       } finally { setTxProgress(""); }
   };
 
@@ -351,7 +376,7 @@ export default function VoteScreen() {
           <Text style={styles.headerLabel}>Digital Ballot</Text>
           <Text style={styles.headerTitle} numberOfLines={1}>{activeElection?.name || "Election"}</Text>
         </View>
-        <View style={styles.pulseContainer}>
+        <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: "#FEF2F2", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20 }}>
             <Animatable.View animation="pulse" iterationCount="infinite" style={styles.pulseDot} />
             <Text style={styles.liveText}>SECURE LIVE</Text>
         </View>
@@ -395,7 +420,7 @@ export default function VoteScreen() {
             <View style={styles.eligibilityIcon}><MaterialCommunityIcons name="account-check" size={24} color="#166534" /></View>
             <View style={{flex: 1}}>
                 <Text style={styles.eligibilityTitle}>Delegate Identity Verified</Text>
-                <Text style={styles.eligibilitySub}>Phase 2: Slate voting for <Text style={{fontWeight: '900'}}>Coalition Leaders</Text> enabled.</Text>
+                <Text style={styles.eligibilitySub}>Delegate Phase: Slate voting for <Text style={{fontWeight: '900'}}>Coalition Leaders</Text> active.</Text>
             </View>
           </Animatable.View>
         ) : (
@@ -413,6 +438,10 @@ export default function VoteScreen() {
             <View style={styles.statusInfo}>
               <Text style={styles.statusLabel}>ELECTION STATUS</Text>
               <Text style={[styles.statusValue, electionStatus === 'ongoing' && {color: '#166534'}]}>{electionStatus?.toUpperCase() || "PENDING"}</Text>
+              <View style={styles.delegateTimeBox}>
+                 <Text style={styles.delegateLabel}>DELEGATE PHASE:</Text>
+                 <Text style={styles.delegateTimer}>{delegateTimeLeft}</Text>
+              </View>
             </View>
             <Animatable.View animation={isUrgent ? "pulse" : undefined} iterationCount="infinite" style={[styles.timerBadge, isUrgent && styles.timerBadgeUrgent]}>
                 <Ionicons name="time" size={14} color={WHITE} />
@@ -445,7 +474,7 @@ export default function VoteScreen() {
                                 </View>
                                 <TouchableOpacity 
                                     style={[styles.slateVoteBtn, {backgroundColor: LAIKIPIA_RED}]} 
-                                    onPress={() => handleCoalitionVote(coalitionName, coalitionGroups[coalitionName])}
+                                    onPress={() => initiateSlateVote(coalitionName, coalitionGroups[coalitionName])}
                                     disabled={isSubmitting}
                                 >
                                     <Text style={[styles.slateVoteBtnText, {color: WHITE}]}>{txProgress ? "SIGNING..." : "VOTE SLATE"}</Text>
@@ -521,7 +550,37 @@ export default function VoteScreen() {
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* Review Modal */}
+      {/* Confirmation Modal for Delegates */}
+      <Modal visible={slateConfirmVisible} animationType="fade" transparent={true}>
+          <View style={styles.modalOverlay}>
+              <Animatable.View animation="zoomIn" duration={300} style={styles.confirmBox}>
+                  <Text style={styles.confirmHeading}>Confirm Slate Vote</Text>
+                  <Text style={styles.confirmText}>You are about to cast your delegate vote for the <Text style={{fontWeight:'bold'}}>{activeSlate?.name}</Text> coalition slate. This action is irreversible once signed.</Text>
+                  
+                  <ScrollView style={styles.slatePreviewList} showsVerticalScrollIndicator={false}>
+                      {activeSlate?.candidates.map((c: any) => (
+                          <View key={c.id} style={styles.previewItem}>
+                              <Image source={{ uri: c.photo_url || 'https://via.placeholder.com/150' }} style={styles.previewImg} />
+                              <View>
+                                  <Text style={styles.previewName}>{c.name}</Text>
+                                  <Text style={styles.previewPos}>{positionsMap[c.position_id]}</Text>
+                              </View>
+                          </View>
+                      ))}
+                  </ScrollView>
+
+                  <View style={styles.confirmActions}>
+                      <TouchableOpacity style={styles.cancelBtn} onPress={() => setSlateConfirmVisible(false)}>
+                          <Text style={styles.cancelBtnText}>CANCEL</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.confirmBtn, {backgroundColor: LAIKIPIA_RED}]} onPress={handleFinalSlateVote}>
+                          <Text style={[styles.confirmBtnText, {color: WHITE}]}>CAST VOTE</Text>
+                      </TouchableOpacity>
+                  </View>
+              </Animatable.View>
+          </View>
+      </Modal>
+
       <Modal visible={reviewModalVisible} animationType="slide" transparent={false}>
         <SafeAreaView style={styles.modalBg}>
           <View style={styles.modalHeader}>
@@ -559,91 +618,105 @@ export default function VoteScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: WHITE },
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  loadingText: { marginTop: 15, fontSize: 11, fontWeight: '800', color: '#666' },
-  topHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10 },
-  headerLabel: { fontSize: 10, color: "#888", fontWeight: '800', textTransform: 'uppercase' },
-  headerTitle: { fontSize: 22, fontWeight: "900", color: "#111" },
-  pulseContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF2F2', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12 },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: WHITE },
+  loadingText: { marginTop: 15, fontSize: 10, fontWeight: "900", color: "#6B7280", letterSpacing: 1 },
+  topHeader: { flexDirection: "row", paddingHorizontal: 20, paddingTop: 10, paddingBottom: 15, alignItems: "center" },
+  headerLabel: { fontSize: 10, fontWeight: "800", color: "#9CA3AF", textTransform: "uppercase", letterSpacing: 1 },
+  headerTitle: { fontSize: 22, fontWeight: "900", color: "#111827" },
   pulseDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: LAIKIPIA_RED, marginRight: 6 },
-  liveText: { fontSize: 10, fontWeight: '900', color: LAIKIPIA_RED },
-  searchSection: { paddingHorizontal: 20, marginTop: 15, marginBottom: 5 },
-  searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3F4F6', borderRadius: 15, height: 45 },
-  searchInput: { flex: 1, paddingHorizontal: 10, fontSize: 14, fontWeight: '600', color: '#111' },
-  scrollContent: { paddingHorizontal: 20, backgroundColor: "#F9FAFB" },
-  statsStrip: { flexDirection: 'row', gap: 10, marginVertical: 15, flexWrap: 'wrap', alignItems: 'center' },
-  schoolTag: { fontSize: 10, backgroundColor: WHITE, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#eee', color: '#666', fontWeight: '700' },
-  roleTag: { fontSize: 10, backgroundColor: WHITE, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#eee', color: '#666', fontWeight: '700' },
-  roleTagContainer: { flexDirection: 'row', alignItems: 'center' },
-  delegateBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: LAIKIPIA_RED, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, gap: 4 },
-  delegateBadgeText: { color: WHITE, fontSize: 10, fontWeight: '900' },
-  statusCard: { backgroundColor: WHITE, borderRadius: 24, padding: 20, marginBottom: 20 },
-  statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  liveText: { fontSize: 9, fontWeight: "900", color: LAIKIPIA_RED },
+  searchSection: { paddingHorizontal: 20, marginBottom: 15 },
+  searchContainer: { flexDirection: "row", alignItems: "center", backgroundColor: "#F3F4F6", borderRadius: 12, height: 45 },
+  searchInput: { flex: 1, paddingHorizontal: 12, fontSize: 14, color: "#111827", fontWeight: "600" },
+  scrollContent: { paddingHorizontal: 20 },
+  statsStrip: { flexDirection: "row", marginBottom: 20, flexWrap: "wrap", gap: 8 },
+  schoolTag: { backgroundColor: "#F3F4F6", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, fontSize: 10, fontWeight: "700", color: "#4B5563" },
+  roleTagContainer: { backgroundColor: "#F3F4F6", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
+  roleTag: { fontSize: 10, fontWeight: "700", color: "#4B5563" },
+  delegateBadge: { backgroundColor: LAIKIPIA_RED, flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, gap: 4 },
+  delegateBadgeText: { fontSize: 9, fontWeight: "900", color: WHITE },
+  eligibilityCard: { flexDirection: "row", backgroundColor: "#F0FDF4", padding: 15, borderRadius: 16, marginBottom: 20, alignItems: "center", borderWidth: 1, borderColor: "#DCFCE7" },
+  notRegisteredCard: { backgroundColor: "#FEF2F2", borderColor: "#FEE2E2" },
+  eligibilityIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#DCFCE7", justifyContent: "center", alignItems: "center", marginRight: 15 },
+  notRegisteredIcon: { backgroundColor: "#FEE2E2" },
+  eligibilityTitle: { fontSize: 15, fontWeight: "900", color: "#166534", marginBottom: 2 },
+  eligibilitySub: { fontSize: 12, color: "#4B5563", lineHeight: 18 },
+  statusCard: { backgroundColor: WHITE, borderRadius: 20, padding: 18, marginBottom: 25, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 },
+  statusRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   statusInfo: { flex: 1 },
-  statusLabel: { fontSize: 9, color: '#9CA3AF', fontWeight: '800' },
-  statusValue: { fontSize: 18, fontWeight: '900', color: '#111' },
-  timerBadge: { backgroundColor: LAIKIPIA_RED, flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12 },
-  timerBadgeUrgent: { backgroundColor: '#ef4444' },
-  timerText: { color: WHITE, fontSize: 11, fontWeight: '900', marginLeft: 6 },
+  statusLabel: { fontSize: 9, fontWeight: "800", color: "#9CA3AF", marginBottom: 4, letterSpacing: 1 },
+  statusValue: { fontSize: 18, fontWeight: "900", color: "#111827" },
+  delegateTimeBox: { marginTop: 8 },
+  delegateLabel: { fontSize: 8, fontWeight: "800", color: "#9CA3AF" },
+  delegateTimer: { fontSize: 10, fontWeight: "700", color: LAIKIPIA_RED },
+  timerBadge: { backgroundColor: "#111827", paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, flexDirection: "row", alignItems: "center", gap: 6 },
+  timerBadgeUrgent: { backgroundColor: LAIKIPIA_RED },
+  timerText: { color: WHITE, fontSize: 13, fontWeight: "900" },
+  votedContainer: { alignItems: "center", paddingVertical: 40, paddingHorizontal: 20, backgroundColor: "#F9FAFB", borderRadius: 30 },
+  successCircle: { width: 100, height: 100, borderRadius: 50, justifyContent: "center", alignItems: "center", marginBottom: 20 },
+  votedTitle: { fontSize: 22, fontWeight: "900", color: "#111827", marginBottom: 10 },
+  votedSub: { fontSize: 14, color: "#6B7280", textAlign: "center", lineHeight: 22, marginBottom: 30 },
+  explorerBtn: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 12, borderRadius: 14, borderWidth: 1.5, gap: 8 },
+  explorerBtnText: { fontSize: 12, fontWeight: "900" },
   section: { marginBottom: 30 },
-  posHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  posTitle: { fontSize: 16, fontWeight: "900", color: "#111" },
-  votedBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#DCFCE7', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-  votedBadgeText: { color: '#166534', fontSize: 10, fontWeight: '900', marginLeft: 4 },
-  gridContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  candidateCard: { width: COLUMN_WIDTH, backgroundColor: WHITE, padding: 12, borderRadius: 20, marginBottom: 15, borderWidth: 1.5, borderColor: '#F3F4F6', alignItems: 'center' },
-  selectedCard: { borderColor: LAIKIPIA_RED, backgroundColor: "#FEF2F2" },
+  posHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 15 },
+  posTitle: { fontSize: 16, fontWeight: "900", color: "#111827" },
+  votedBadge: { flexDirection: "row", alignItems: "center", backgroundColor: "#DCFCE7", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, gap: 4 },
+  votedBadgeText: { fontSize: 9, fontWeight: "900", color: "#166534" },
+  gridContainer: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
+  candidateCard: { width: COLUMN_WIDTH, backgroundColor: "#F9FAFB", borderRadius: 20, padding: 12, marginBottom: 15, borderWidth: 1.5, borderColor: "transparent" },
+  selectedCard: { borderColor: LAIKIPIA_RED, backgroundColor: WHITE },
   disabledCard: { opacity: 0.6 },
-  candImage: { width: 60, height: 60, borderRadius: 30, marginBottom: 10 },
-  candName: { fontSize: 13, fontWeight: "800", color: "#111", textAlign: 'center' },
-  coalitionChip: { marginTop: 6, backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  coalitionChipText: { fontSize: 9, fontWeight: '800', color: '#64748b' },
-  checkIndicator: { position: 'absolute', top: 8, right: 8, width: 20, height: 20, borderRadius: 10, borderWidth: 1, borderColor: '#E5E7EB', justifyContent: 'center', alignItems: 'center' },
-  checkVoted: { backgroundColor: '#166534', borderColor: '#166534' },
-  submitButton: { flexDirection: 'row', padding: 20, borderRadius: 20, alignItems: "center", justifyContent: 'center' },
-  disabledButton: { backgroundColor: "#E5E7EB" },
-  submitButtonText: { fontWeight: "900", fontSize: 14 },
-  votedContainer: { padding: 40, alignItems: 'center', justifyContent: 'center', marginTop: 20, backgroundColor: WHITE, borderRadius: 20, marginHorizontal: 20, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 10 },
-  successCircle: { width: 100, height: 100, borderRadius: 50, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
-  votedTitle: { fontSize: 22, fontWeight: '900', color: '#111827', marginBottom: 10 },
-  votedSub: { fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 20, marginBottom: 25 },
-  explorerBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 12, borderWidth: 1 },
-  explorerBtnText: { fontSize: 14, fontWeight: '700', marginLeft: 8 },
-  emptyState: { alignItems: "center", paddingVertical: 60 },
-  emptyText: { color: "#9CA3AF", fontSize: 14, fontWeight: "700" },
-  modalBg: { flex: 1, backgroundColor: '#F9FAFB' },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', padding: 20, backgroundColor: WHITE },
-  backBtn: { padding: 8, backgroundColor: '#F3F4F6', borderRadius: 12, marginRight: 15 },
-  modalTitle: { fontSize: 20, fontWeight: '900' },
-  modalScroll: { flex: 1 },
-  reviewCard: { backgroundColor: WHITE, borderRadius: 20, padding: 15, marginBottom: 12, borderWidth: 1, borderColor: '#E5E7EB' },
-  reviewContent: { flexDirection: 'row', alignItems: 'center' },
-  reviewPhoto: { width: 40, height: 40, borderRadius: 10, marginRight: 12 },
-  reviewPos: { fontSize: 9, fontWeight: '800', textTransform: 'uppercase' },
-  reviewName: { fontSize: 15, fontWeight: '900' },
-  reviewCoalition: { fontSize: 11, color: '#64748b', fontWeight: '700', marginTop: 2 },
-  modalFooter: { padding: 20, backgroundColor: WHITE },
-  confirmBtn: { padding: 20, borderRadius: 20, alignItems: 'center' },
-  confirmBtnText: { fontWeight: '900' },
-  eligibilityCard: { flexDirection: 'row', backgroundColor: WHITE, padding: 15, borderRadius: 20, marginBottom: 20, borderLeftWidth: 5, borderLeftColor: '#166534', alignItems: 'center' },
-  eligibilityIcon: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#DCFCE7', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
-  eligibilityTitle: { fontSize: 14, fontWeight: '900', color: '#111' },
-  eligibilitySub: { fontSize: 11, color: '#6B7280', marginTop: 2 },
-  notRegisteredCard: { borderLeftColor: LAIKIPIA_RED, backgroundColor: '#FFF5F5' },
-  notRegisteredIcon: { backgroundColor: '#FFEBEB' },
-  coalitionSlateCard: { marginBottom: 20, borderRadius: 24, overflow: 'hidden', borderWidth: 1, borderColor: '#E5E7EB' },
+  candImage: { width: "100%", height: 140, borderRadius: 15, marginBottom: 10, backgroundColor: "#E5E7EB" },
+  candName: { fontSize: 14, fontWeight: "900", color: "#111827", marginBottom: 4 },
+  coalitionChip: { backgroundColor: "#E5E7EB", alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  coalitionChipText: { fontSize: 9, fontWeight: "800", color: "#4B5563" },
+  checkIndicator: { position: "absolute", top: 8, right: 8, width: 22, height: 22, borderRadius: 11, backgroundColor: WHITE, borderWidth: 1.5, borderColor: "#E5E7EB", justifyContent: "center", alignItems: "center" },
+  checkVoted: { backgroundColor: "#166534", borderColor: "#166534" },
+  submitButton: { flexDirection: "row", height: 60, borderRadius: 18, justifyContent: "center", alignItems: "center", marginTop: 10, marginBottom: 30 },
+  disabledButton: { opacity: 0.5 },
+  submitButtonText: { fontSize: 16, fontWeight: "900", letterSpacing: 1 },
+  coalitionSlateCard: { marginBottom: 20, borderRadius: 24, overflow: "hidden", borderWidth: 1, borderColor: "#F3F4F6" },
   coalitionGradient: { padding: 20 },
-  slateHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
-  slateTitle: { fontSize: 18, fontWeight: '900', color: '#111' },
-  slateBadge: { fontSize: 9, fontWeight: '800', marginTop: 2 },
+  slateHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 },
+  slateTitle: { fontSize: 20, fontWeight: "900", color: "#111827" },
+  slateBadge: { fontSize: 10, fontWeight: "800", letterSpacing: 1, marginTop: 2 },
   slateVoteBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
-  slateVoteBtnText: { fontSize: 12, fontWeight: '900' },
-  slateMembers: { flexDirection: 'row', flexWrap: 'wrap', gap: 15 },
-  slateMemberItem: { alignItems: 'center', width: (width - 100) / 3 },
-  slateMemberPhoto: { width: 50, height: 50, borderRadius: 15, marginBottom: 8, borderWidth: 2, borderColor: WHITE },
-  slateMemberName: { fontSize: 11, fontWeight: '800', color: '#111' },
-  slateMemberPos: { fontSize: 8, color: '#6B7280', fontWeight: '700', textAlign: 'center' },
-  toastContainer: { position: "absolute", top: 0, left: 20, right: 20, zIndex: 9999 },
-  toastContent: { backgroundColor: WHITE, flexDirection: "row", alignItems: "center", padding: 15, borderRadius: 15, borderWidth: 1, borderColor: "#eee", elevation: 10 },
-  toastText: { color: "#111", marginLeft: 10, fontWeight: "800", fontSize: 13 },
+  slateVoteBtnText: { fontSize: 11, fontWeight: "900" },
+  slateMembers: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  slateMemberItem: { width: (width - 110) / 3, alignItems: "center" },
+  slateMemberPhoto: { width: 50, height: 50, borderRadius: 12, marginBottom: 6, backgroundColor: "#E5E7EB" },
+  slateMemberName: { fontSize: 10, fontWeight: "800", color: "#111827" },
+  slateMemberPos: { fontSize: 8, color: "#6B7280", fontWeight: "600" },
+  modalBg: { flex: 1, backgroundColor: WHITE },
+  modalHeader: { flexDirection: "row", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" },
+  backBtn: { width: 40, height: 40, justifyContent: "center" },
+  modalTitle: { fontSize: 20, fontWeight: "900" },
+  modalScroll: { flex: 1 },
+  reviewCard: { marginBottom: 15, backgroundColor: "#F9FAFB", borderRadius: 18, padding: 15 },
+  reviewContent: { flexDirection: "row", alignItems: "center" },
+  reviewPhoto: { width: 60, height: 60, borderRadius: 12, marginRight: 15 },
+  reviewPos: { fontSize: 10, fontWeight: "900", marginBottom: 2 },
+  reviewName: { fontSize: 16, fontWeight: "900", color: "#111827" },
+  reviewCoalition: { fontSize: 11, color: "#6B7280", fontWeight: "600" },
+  modalFooter: { padding: 20, borderTopWidth: 1, borderTopColor: "#F3F4F6" },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 20 },
+  confirmBox: { backgroundColor: WHITE, borderRadius: 24, padding: 25 },
+  confirmHeading: { fontSize: 20, fontWeight: "900", marginBottom: 10, color: '#111827' },
+  confirmText: { color: "#4B5563", marginBottom: 20, lineHeight: 20 },
+  slatePreviewList: { maxHeight: 250, marginBottom: 20 },
+  previewItem: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
+  previewImg: { width: 40, height: 40, borderRadius: 8, marginRight: 12, backgroundColor: "#F3F4F6" },
+  previewName: { fontSize: 14, fontWeight: "800", color: '#111827' },
+  previewPos: { fontSize: 11, color: "#9CA3AF" },
+  confirmActions: { flexDirection: "row", gap: 10 },
+  cancelBtn: { flex: 1, padding: 15, alignItems: "center" },
+  cancelBtnText: { fontWeight: "800", color: "#9CA3AF" },
+  confirmBtn: { flex: 2, padding: 15, borderRadius: 12, alignItems: "center" },
+  confirmBtnText: { fontSize: 14, fontWeight: "900" },
+  toastContainer: { position: "absolute", top: 10, left: 20, right: 20, zIndex: 9999 },
+  toastContent: { flexDirection: "row", alignItems: "center", backgroundColor: WHITE, padding: 16, borderRadius: 16, elevation: 10, borderLeftWidth: 4, borderLeftColor: LAIKIPIA_RED },
+  toastText: { marginLeft: 12, fontSize: 14, fontWeight: "800", color: "#111827" },
+  emptyState: { padding: 60, alignItems: "center" },
+  emptyText: { marginTop: 15, color: "#9CA3AF", fontWeight: "700" }
 });

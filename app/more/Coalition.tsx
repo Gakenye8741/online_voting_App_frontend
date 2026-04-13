@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Alert,
   Modal,
   TextInput,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons, Octicons } from "@expo/vector-icons";
@@ -39,11 +40,11 @@ export default function CandidateDetailPage() {
   const navigation = useNavigation();
   const userId = useSelector((state: RootState) => state.auth.user?.userId);
 
-  // Modal States
+  // Modal & Refresh States
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Form States
   const [coalitionForm, setCoalitionForm] = useState({
     name: "",
     acronym: "",
@@ -57,16 +58,38 @@ export default function CandidateDetailPage() {
     userId ?? "", 
     { skip: !userId }
   );
-  
   const candidate = data?.candidate;
 
   // 2. Fetch Election & Position
-  const { data: electionData } = useGetElectionByIdQuery(candidate?.election_id ?? "", { skip: !candidate?.election_id });
-  const { data: positionData } = useGetPositionByIdQuery(candidate?.position_id ?? "", { skip: !candidate?.position_id });
+  const { data: electionData, refetch: refetchElection } = useGetElectionByIdQuery(
+    candidate?.election_id ?? "", 
+    { skip: !candidate?.election_id }
+  );
+  
+  const { data: positionData } = useGetPositionByIdQuery(
+    candidate?.position_id ?? "", 
+    { skip: !candidate?.position_id }
+  );
 
-  // 3. Coalition Specific Data & Mutations
-  const { data: availableCoalitions, isLoading: loadingList } = useGetCoalitionsByElectionQuery(candidate?.election_id ?? "", { skip: !candidate?.election_id });
-  const { data: slateData, isLoading: loadingSlate } = useGetCoalitionFullSlateQuery(candidate?.coalition_id ?? "", { skip: !candidate?.coalition_id });
+  // 3. FETCH COALITIONS FOR THE SPECIFIC ACTIVE ELECTION
+  const activeElectionId = candidate?.election_id;
+
+  const { 
+    data: availableCoalitions, 
+    isLoading: loadingList, 
+    refetch: refetchCoalitions 
+  } = useGetCoalitionsByElectionQuery(activeElectionId ?? "", { 
+    skip: !activeElectionId,
+    refetchOnMountOrArgChange: true 
+  });
+  
+  const { 
+    data: slateData, 
+    isLoading: loadingSlate, 
+    refetch: refetchSlate 
+  } = useGetCoalitionFullSlateQuery(candidate?.coalition_id ?? "", { 
+    skip: !candidate?.coalition_id 
+  });
   
   const [createCoalition, { isLoading: isCreating }] = useCreateCoalitionMutation();
   const [joinCoalition, { isLoading: isJoining }] = useJoinCoalitionMutation();
@@ -74,6 +97,28 @@ export default function CandidateDetailPage() {
 
   const positionName = positionData?.position?.name || "Position";
   const isPresident = positionName.toLowerCase().includes("president") && !positionName.toLowerCase().includes("vice");
+
+  const filteredCoalitions = useMemo(() => {
+    return availableCoalitions?.coalitions?.filter(
+      (c: any) => c.election_id === activeElectionId
+    ) ?? [];
+  }, [availableCoalitions, activeElectionId]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        refetch().unwrap(),
+        refetchElection()?.unwrap(),
+        refetchCoalitions().unwrap(),
+        candidate?.coalition_id ? refetchSlate().unwrap() : Promise.resolve()
+      ]);
+    } catch (err) {
+      console.log("Refresh partial failure", err);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch, refetchElection, refetchCoalitions, refetchSlate, candidate?.coalition_id]);
 
   const onShare = async () => {
     try {
@@ -93,13 +138,13 @@ export default function CandidateDetailPage() {
       await createCoalition({
         creatorCandidateId: candidate!.id,
         coalition: {
-          election_id: candidate!.election_id,
+          election_id: activeElectionId!,
           ...coalitionForm,
         }
       }).unwrap();
       Alert.alert("Success", "Coalition created successfully!");
       setShowCreateModal(false);
-      refetch();
+      onRefresh();
     } catch (err: any) {
       Alert.alert("Error", err?.data?.message || "Creation failed.");
     }
@@ -113,7 +158,7 @@ export default function CandidateDetailPage() {
       }).unwrap();
       Alert.alert("Success", "Joined coalition successfully!");
       setShowJoinModal(false);
-      refetch();
+      onRefresh();
     } catch (err: any) {
       Alert.alert("Error", err?.data?.message || "Join failed.");
     }
@@ -132,7 +177,7 @@ export default function CandidateDetailPage() {
             try {
               await leaveCoalition(candidate!.id).unwrap();
               Alert.alert("Updated", "You have left the coalition.");
-              refetch();
+              onRefresh();
             } catch (err: any) {
               Alert.alert("Error", err?.data?.message || "Failed to leave.");
             }
@@ -157,7 +202,7 @@ export default function CandidateDetailPage() {
         <MaterialCommunityIcons name="account-search-outline" size={60} color="#ccc" />
         <Text style={styles.devName}>Profile Not Found</Text>
         <Text style={styles.bioText}>Server may be sleeping or profile is missing.</Text>
-        <TouchableOpacity style={[styles.submitBtn, { paddingHorizontal: 30 }]} onPress={() => refetch()}>
+        <TouchableOpacity style={[styles.submitBtn, { paddingHorizontal: 30 }]} onPress={() => onRefresh()}>
           <Text style={styles.submitBtnText}>RETRY SYNC</Text>
         </TouchableOpacity>
       </View>
@@ -200,24 +245,34 @@ export default function CandidateDetailPage() {
               <Text style={styles.modalTitle}>Join Alliance</Text>
               <TouchableOpacity onPress={() => setShowJoinModal(false)}><Ionicons name="close" size={24} color={DARK_NAVY} /></TouchableOpacity>
             </View>
-            <Text style={styles.coalitionSubText}>Select an existing coalition to join their campaign slate.</Text>
+            <Text style={styles.coalitionSubText}>
+                Active Election: <Text style={{fontWeight: '800'}}>{electionData?.election?.name || "Current cycle"}</Text>
+            </Text>
             <ScrollView style={{ marginTop: 15 }}>
               {loadingList ? <ActivityIndicator color={DARK_NAVY} /> : 
-                availableCoalitions?.coalitions?.map((c: any) => (
-                  <TouchableOpacity key={c.id} style={styles.joinItem} onPress={() => handleJoinSelection(c.id)}>
-                    <View style={[styles.colorDot, { backgroundColor: c.color_code || DARK_NAVY }]} />
-                    <View>
-                      <Text style={styles.joinItemName}>{c.name} ({c.acronym})</Text>
-                      <Text style={styles.joinItemSlogan}>{c.slogan}</Text>
-                    </View>
-                  </TouchableOpacity>
-              ))}
+                filteredCoalitions.length > 0 ? (
+                  filteredCoalitions.map((c: any) => (
+                    <TouchableOpacity key={c.id} style={styles.joinItem} onPress={() => handleJoinSelection(c.id)}>
+                      <View style={[styles.colorDot, { backgroundColor: c.color_code || DARK_NAVY }]} />
+                      <View>
+                        <Text style={styles.joinItemName}>{c.name} ({c.acronym})</Text>
+                        <Text style={styles.joinItemSlogan}>{c.slogan}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))
+                ) : (
+                  <View style={{ alignItems: 'center', marginTop: 30 }}>
+                    <MaterialCommunityIcons name="alert-circle-outline" size={40} color="#ccc" />
+                    <Text style={{ color: '#999', marginTop: 10 }}>No coalitions found for this election.</Text>
+                  </View>
+                )
+              }
             </ScrollView>
           </View>
         </View>
       </Modal>
 
-      {/* UPDATED NAVBAR WITH LOGO AND CHEVRON */}
+      {/* NAVBAR */}
       <View style={styles.navbar}>
         <View style={styles.headerLeft}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backChevron}>
@@ -230,13 +285,23 @@ export default function CandidateDetailPage() {
           </View>
         </View>
         
-        <TouchableOpacity onPress={() => refetch()} style={styles.refreshBtn}>
+        <TouchableOpacity onPress={() => onRefresh()} style={styles.refreshBtn}>
           <Ionicons name="reload-circle-outline" size={24} color={UNIVERSITY_RED} />
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        
+      <ScrollView 
+        contentContainerStyle={styles.container} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh} 
+            tintColor={UNIVERSITY_RED} 
+            colors={[UNIVERSITY_RED]} 
+          />
+        }
+      >
         <View style={styles.headerSection}>
           <View style={styles.avatarWrapper}>
             <View style={styles.avatarInner}>
@@ -348,8 +413,6 @@ const DataBox = ({ icon, label, val, color }: any) => (
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#FAFAFA" },
   centered: { flex: 1, justifyContent: "center", alignItems: "center", padding: 20 },
-  
-  // NAVBAR UPDATED
   navbar: { 
     flexDirection: "row", 
     alignItems: "center", 
@@ -366,7 +429,6 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 16, fontWeight: '900', color: UNIVERSITY_RED, textTransform: 'uppercase' },
   headerSub: { fontSize: 10, color: '#777', fontWeight: 'bold' },
   refreshBtn: { padding: 5 },
-
   container: { padding: 20, paddingBottom: 60 },
   headerSection: { alignItems: 'center', marginBottom: 25 },
   avatarWrapper: { marginBottom: 15, position: 'relative' },
