@@ -8,7 +8,7 @@ export interface Notification {
   title: string;
   message: string;
   is_read: boolean;
-  createdAt: string;
+ created_at: string;
   user_id: string;
   election_id?: string | null;
   type?: "SYSTEM" | "REMINDER" | "ELECTION";
