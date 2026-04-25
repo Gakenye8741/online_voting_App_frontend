@@ -29,7 +29,7 @@ export interface MessageResponse {
 export const positionApi = createApi({
   reducerPath: "positionApi",
   baseQuery: fetchBaseQuery({
-    baseUrl: "https://online-voting-system-oq4p.onrender.com/api/positions",
+    baseUrl: "https://laikipiavotingsystem-f3aabefwhrendaae.southafricanorth-01.azurewebsites.net/api/positions",
     prepareHeaders: async (headers) => {
       const token = await AsyncStorage.getItem("token");
       if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -69,12 +69,15 @@ export const positionApi = createApi({
       providesTags: ["Positions"],
     }),
 
-    // -------------------- GET BY ELECTION --------------------
-    getPositionsByElection: builder.query<PositionsResponse, string>({
-      query: (electionId) =>
-        `by-election?election_id=${encodeURIComponent(electionId)}`,
-      providesTags: ["Positions"],
-    }),
+    // Positions.Api.ts
+// -------------------- GET BY ELECTION --------------------
+getPositionsByElection: builder.query<PositionsResponse, string | null>({
+  query: (electionId) => {
+    if (!electionId) return ''; // Fallback
+    return `by-election?election_id=${encodeURIComponent(electionId)}`;
+  },
+  providesTags: ["Positions"],
+}),
 
     // -------------------- COUNT ALL --------------------
     countPositions: builder.query<{ count: number }, void>({

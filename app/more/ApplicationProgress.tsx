@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -53,33 +53,6 @@ const STATUS_COLOR = {
   DEFAULT: "#777",
 } as const;
 
-export interface CandidateApplication {
-  id: string;
-  student_id: string;
-  position_id: string;
-  position_name?: string;
-  election_id: string;
-  election_name?: string;
-  manifesto: string;
-  photo_url: string;
-  documents_url?: string | null; 
-  school: string;
-  school_dean_status?: "PENDING" | "APPROVED" | "REJECTED";
-  accounts_status?: "PENDING" | "APPROVED" | "REJECTED";
-  dean_of_students_status?: "PENDING" | "APPROVED" | "REJECTED";
-  overall_status?: "PENDING" | "APPROVED" | "REJECTED";
-  school_dean_comment?: string | null;
-  accounts_comment?: string | null;
-  dean_of_students_comment?: string | null;
-  school_dean_id?: string;
-  accounts_officer_id?: string;
-  dean_of_students_id?: string;
-  coalition_id?: string;
-  coalition_name?: string;
-  created_at?: string; 
-  updated_at?: string;
-}
-
 export default function ApplicationProgress() {
   const navigation = useNavigation();
   const [refreshing, setRefreshing] = useState(false);
@@ -94,8 +67,15 @@ export default function ApplicationProgress() {
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const scrollY = useRef(new Animated.Value(0)).current;
 
-  const { data: application, isLoading, isError, refetch } = useGetApplicationsByStudentQuery();
+  // FETCH DATA
+  const { data: appsResponse, isLoading, isError, refetch } = useGetApplicationsByStudentQuery();
   const [deleteApplication, { isLoading: isDeleting }] = useDeleteApplicationMutation();
+
+  // EXTRACT SINGLE APPLICATION
+  const application = useMemo(() => {
+    if (!appsResponse) return null;
+    return Array.isArray(appsResponse) ? appsResponse[0] : appsResponse;
+  }, [appsResponse]);
 
   const { data: positionData, refetch: refetchPosition } = useGetPositionByIdQuery(
     application?.position_id ?? "",
@@ -106,13 +86,7 @@ export default function ApplicationProgress() {
     application?.election_id ?? "",
     { skip: !application?.election_id }
   );
-
-  const [createCoalition, { isLoading: isCreatingCoalition }] = useCreateCoalitionMutation();
-  const [joinCoalition, { isLoading: isJoiningCoalition }] = useJoinCoalitionMutation();
-  const { data: electionCoalitions } = useGetCoalitionsByElectionQuery(application?.election_id ?? "", {
-    skip: !application?.election_id || application?.overall_status !== "APPROVED"
-  });
-
+  
   const { data: deanUser } = useGetUserByIdQuery(application?.school_dean_id ?? "", {
     skip: !application?.school_dean_id,
   });
@@ -127,8 +101,8 @@ export default function ApplicationProgress() {
   const accountsName = accountsUser?.user?.name ?? "Accounts Officer";
   const dosName = dosUser?.user?.name ?? "Dean of Students";
 
-  const isPresident = positionData?.position?.name?.toLowerCase().includes("president") && 
-                     !positionData?.position?.name?.toLowerCase().includes("vice");
+  const positionName = positionData?.position?.name ?? "Loading...";
+  const electionName = electionData?.election?.name ?? application?.election_name ?? "University Election";
 
   const showToast = () => {
     if (Platform.OS !== 'web') {
@@ -145,45 +119,6 @@ export default function ApplicationProgress() {
         Animated.timing(toastOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
       ]).start();
     }, 2800);
-  };
-
-  const handleCreateCoalitionSubmit = async () => {
-    if (!coalitionName || !coalitionAcronym) {
-      Alert.alert("Error", "Please fill in the Coalition Name and Acronym");
-      return;
-    }
-    if (!application) return;
-    try {
-      await createCoalition({
-        creatorCandidateId: application.id,
-        coalition: {
-          election_id: application.election_id,
-          name: coalitionName,
-          acronym: coalitionAcronym,
-          slogan: coalitionSlogan,
-          color_code: UNIVERSITY_RED
-        }
-      }).unwrap();
-      Alert.alert("Success", "Coalition Created Successfully!");
-      setShowCreateForm(false);
-      refetch();
-    } catch (err: any) {
-      Alert.alert("Error", err.data?.message || "Failed to create coalition");
-    }
-  };
-
-  const handleJoinSubmit = async (coalitionId: string) => {
-    if (!application) return;
-    try {
-      await joinCoalition({
-        candidate_id: application.id,
-        coalition_id: coalitionId
-      }).unwrap();
-      Alert.alert("Success", "Successfully joined the coalition!");
-      refetch();
-    } catch (err: any) {
-      Alert.alert("Error", err.data?.message || "Failed to join coalition");
-    }
   };
 
   const onRefresh = useCallback(async () => {
@@ -256,8 +191,6 @@ export default function ApplicationProgress() {
     );
   }
 
-  const positionName = positionData?.position?.name ?? "Loading...";
-  const electionName = electionData?.election?.name ?? "Loading...";
   const overallStatus = application.overall_status ?? "PENDING";
   const submittedAt = application.created_at
     ? new Date(application.created_at).toLocaleString()
@@ -293,23 +226,6 @@ export default function ApplicationProgress() {
       icon: "checkmark-done-circle-outline",
     },
   ];
-
-  const RenderCoalitionForm = () => (
-    <View style={styles.createForm}>
-      <Text style={styles.formTitle}>Coalition Info</Text>
-      <TextInput style={styles.input} placeholder="Full Name (e.g. Alliance for Progress)" value={coalitionName} onChangeText={setCoalitionName} />
-      <TextInput style={styles.input} placeholder="Acronym (max 5 chars)" value={coalitionAcronym} onChangeText={setCoalitionAcronym} maxLength={5} autoCapitalize="characters" />
-      <TextInput style={styles.input} placeholder="Official Slogan" value={coalitionSlogan} onChangeText={setCoalitionSlogan} />
-      <View style={styles.formButtons}>
-         <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowCreateForm(false)}>
-            <Text style={{color: '#666', fontWeight: 'bold'}}>Cancel</Text>
-         </TouchableOpacity>
-         <TouchableOpacity style={styles.submitBtn} onPress={handleCreateCoalitionSubmit}>
-            {isCreatingCoalition ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{color: '#fff', fontWeight: 'bold'}}>Create</Text>}
-         </TouchableOpacity>
-      </View>
-    </View>
-  );
 
   const RenderVettingStep = ({ step, idx }: { step: any, idx: number }) => {
     const color = STATUS_COLOR[step.status as keyof typeof STATUS_COLOR] ?? STATUS_COLOR.DEFAULT;
@@ -354,7 +270,7 @@ export default function ApplicationProgress() {
         </LinearGradient>
       </Animated.View>
 
-      {/* UPDATED NAVBAR WITH LOGO AND CHEVRON */}
+      {/* NAVBAR */}
       <View style={styles.navbar}>
         <View style={styles.headerLeft}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backChevron}>
@@ -362,7 +278,7 @@ export default function ApplicationProgress() {
           </TouchableOpacity>
           <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.logo} />
           <View>
-            <Text style={styles.headerTitle}>Vetting Terminal</Text>
+            <Text style={styles.headerTitle}>{electionName}</Text>
             <Text style={styles.headerSub}>NODE: {application.id.slice(0, 8).toUpperCase()}</Text>
           </View>
         </View>
@@ -381,7 +297,7 @@ export default function ApplicationProgress() {
         
         <View style={styles.descriptionCard}>
           <Text style={styles.descriptionText}>
-            This terminal provides live status tracking for your candidacy in the {electionName}. Ensure all departments approve your profile before the deadline.
+            This terminal provides live status tracking for your candidacy in the <Text style={{fontWeight: 'bold', color: UNIVERSITY_RED}}>{electionName}</Text>. Ensure all departments approve your profile before the deadline.
           </Text>
         </View>
 
@@ -421,57 +337,6 @@ export default function ApplicationProgress() {
             </View>
         </View>
 
-        {overallStatus === "APPROVED" && (
-          <View style={styles.coalitionSection}>
-            <View style={styles.sectionHeader}>
-              <MaterialCommunityIcons name="handshake" size={24} color={UNIVERSITY_RED} />
-              <Text style={styles.sectionTitle}>Coalition Hub</Text>
-            </View>
-
-            {application.coalition_id ? (
-              <View style={styles.joinedCoalitionBox}>
-                <View style={{flex: 1}}>
-                    <Text style={styles.joinedLabel}>MEMBER OF:</Text>
-                    <Text style={styles.joinedName}>{application.coalition_name || "Assigned Coalition"}</Text>
-                    <Text style={styles.joinedSub}>Your candidacy is part of this strategic team.</Text>
-                </View>
-                <MaterialCommunityIcons name="shield-check" size={30} color="rgba(255,255,255,0.5)" />
-              </View>
-            ) : isPresident ? (
-              <View>
-                {!showCreateForm ? (
-                  <TouchableOpacity style={styles.primaryActionBtn} onPress={() => setShowCreateForm(true)}>
-                    <LinearGradient colors={[UNIVERSITY_RED, "#B71C1C"]} style={styles.btnGradient}>
-                      <Ionicons name="add-circle-outline" size={20} color="#fff" style={{marginRight: 8}} />
-                      <Text style={styles.btnText}>CREATE COALITION</Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                ) : <RenderCoalitionForm /> }
-              </View>
-            ) : (
-              <View>
-                <Text style={styles.promptText}>Join a registered coalition to participate in group campaigns.</Text>
-                {electionCoalitions?.coalitions?.length === 0 ? (
-                  <View style={styles.emptyBox}>
-                     <Ionicons name="alert-circle-outline" size={24} color="#AAA" />
-                     <Text style={styles.noData}>No coalitions formed yet.</Text>
-                  </View>
-                ) : (
-                  electionCoalitions?.coalitions?.map((c: any) => (
-                    <TouchableOpacity key={c.id} style={styles.coalitionJoinItem} onPress={() => handleJoinSubmit(c.id)}>
-                      <View style={{flex: 1}}>
-                        <Text style={styles.cName}>{c.name} ({c.acronym})</Text>
-                        <Text style={styles.cSlogan}>"{c.slogan || "No slogan provided"}"</Text>
-                      </View>
-                      {isJoiningCoalition ? <ActivityIndicator color={UNIVERSITY_RED} /> : <Ionicons name="chevron-forward" size={20} color={UNIVERSITY_RED} />}
-                    </TouchableOpacity>
-                  ))
-                )}
-              </View>
-            )}
-          </View>
-        )}
-
         <View style={styles.infoCard}>
           <View style={styles.infoRow}>
             <View style={styles.infoColumn}>
@@ -493,18 +358,18 @@ export default function ApplicationProgress() {
               <Text style={styles.infoLabel}>CANDIDATE TYPE</Text>
               <Text style={styles.infoValue}>Full Delegate</Text>
             </View>
-          </View>
-
-          <TouchableOpacity 
-            style={styles.docLink} 
-            onPress={() => openDocument(application.photo_url || application.documents_url)}
-          >
-            <View style={{flexDirection: 'row', alignItems: 'center'}}>
-               <Ionicons name="document-attach-outline" size={18} color={UNIVERSITY_RED} />
-               <Text style={styles.docLinkText}>Audit Submitted Documents</Text>
+          </View> 
+          
+          <View style={styles.infoRow}>
+            <View style={styles.infoColumn}>
+              <Text style={styles.infoLabel}>ELECTION NAME</Text>
+              <Text style={styles.infoValue}>{electionName}</Text>
             </View>
-            <Ionicons name="open-outline" size={16} color={UNIVERSITY_RED} />
-          </TouchableOpacity>
+            <View style={styles.infoColumn}>
+              <Text style={styles.infoLabel}>APPLICATION ID</Text>
+              <Text style={styles.infoValue}>{application.id.split('-')[0].toUpperCase()}</Text>
+            </View>
+          </View>
         </View>
 
         <View style={styles.manifestoCard}>
@@ -580,7 +445,7 @@ export default function ApplicationProgress() {
                       <Text style={styles.certType}>ELECTORAL CLEARANCE CERTIFICATE</Text>
                       <View style={styles.certDivider} />
                       <Text style={styles.certContent}>
-                          This is to certify that <Text style={{fontWeight: 'bold'}}>{application.student_id}</Text> is duly cleared to contest for the position of <Text style={{fontWeight: 'bold'}}>{positionName}</Text> in the 2026 Student Elections.
+                          This is to certify that <Text style={{fontWeight: 'bold'}}>{application.student_id}</Text> is duly cleared to contest for the position of <Text style={{fontWeight: 'bold'}}>{positionName}</Text> in the {electionName}.
                       </Text>
                       <View style={styles.certSignature}>
                           <Text style={styles.sigText}>Digitally Verified by IEB System</Text>
@@ -600,138 +465,92 @@ export default function ApplicationProgress() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: UNIVERSITY_WHITE },
-  centered: { flex: 1, justifyContent: "center", alignItems: "center" },
-  loadingText: { marginTop: 10, color: UNIVERSITY_RED, fontWeight: "600" },
-  errorText: { fontSize: 16, color: "#666", marginBottom: 20 },
-  errorBackBtn: { backgroundColor: UNIVERSITY_RED, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
-  
-  // NAVBAR UPDATED
-  navbar: { 
-    flexDirection: "row", 
-    alignItems: "center", 
-    justifyContent: "space-between", 
-    paddingHorizontal: 16, 
-    height: 70, 
-    backgroundColor: UNIVERSITY_WHITE, 
-    borderBottomWidth: 1, 
-    borderBottomColor: "#eee" 
-  },
+  centered: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: UNIVERSITY_WHITE },
+  loadingText: { marginTop: 15, color: "#666", fontSize: 16, fontWeight: "500" },
+  errorText: { color: UNIVERSITY_RED, fontSize: 16, textAlign: "center", paddingHorizontal: 40, marginBottom: 20 },
+  errorBackBtn: { backgroundColor: UNIVERSITY_RED, paddingHorizontal: 25, paddingVertical: 12, borderRadius: 10 },
+  navbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
   headerLeft: { flexDirection: 'row', alignItems: 'center' },
-  backChevron: { marginRight: 8 },
-  logo: { width: 42, height: 42, resizeMode: 'contain', marginRight: 10 },
-  headerTitle: { fontSize: 16, fontWeight: '900', color: UNIVERSITY_RED, textTransform: 'uppercase' },
-  headerSub: { fontSize: 10, color: '#777', fontWeight: 'bold' },
+  backChevron: { marginRight: 10 },
+  logo: { width: 35, height: 35, marginRight: 12 },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: UNIVERSITY_RED },
+  headerSub: { fontSize: 10, color: '#999', fontWeight: 'bold', marginTop: 2 },
   refreshBtn: { padding: 5 },
-
-  container: { padding: 16, paddingBottom: 40 },
-  header: { fontSize: 24, fontWeight: "900", color: UNIVERSITY_RED, marginBottom: 8 },
-  descriptionCard: { backgroundColor: '#F9F9F9', padding: 12, borderRadius: 12, marginBottom: 16, borderLeftWidth: 4, borderLeftColor: UNIVERSITY_RED },
-  descriptionText: { color: '#555', fontSize: 13, lineHeight: 18 },
-  
-  profileSection: { backgroundColor: LIGHT_RED_BG, borderRadius: 16, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: '#FFEBEE' },
+  container: { padding: 20 },
+  header: { fontSize: 22, fontWeight: '800', color: '#1a1a1a', marginBottom: 15 },
+  descriptionCard: { backgroundColor: LIGHT_RED_BG, padding: 15, borderRadius: 12, marginBottom: 20, borderLeftWidth: 4, borderLeftColor: UNIVERSITY_RED },
+  descriptionText: { color: '#555', fontSize: 14, lineHeight: 20 },
+  clearanceBanner: { marginBottom: 20, borderRadius: 12, overflow: 'hidden', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
+  clearanceGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 18 },
+  clearanceInfo: { flexDirection: 'row', alignItems: 'center' },
+  clearanceTitle: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  clearanceSub: { color: 'rgba(255,255,255,0.8)', fontSize: 12, marginTop: 2 },
+  profileSection: { backgroundColor: '#fff', borderRadius: 15, padding: 20, marginBottom: 15, borderWidth: 1, borderColor: '#f0f0f0' },
   profileHeader: { flexDirection: 'row', alignItems: 'center' },
-  imageContainer: { width: 80, height: 80, borderRadius: 40, overflow: 'hidden', backgroundColor: '#fff', borderWidth: 2, borderColor: UNIVERSITY_RED },
+  imageContainer: { width: 80, height: 80, borderRadius: 40, overflow: 'hidden', backgroundColor: '#f9f9f9', borderWidth: 3, borderColor: UNIVERSITY_RED + '20' },
   candidatePhoto: { width: '100%', height: '100%' },
   photoPlaceholder: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
-  headerInfo: { marginLeft: 16, flex: 1 },
-  candIdLabel: { fontSize: 10, fontWeight: '800', color: '#999', letterSpacing: 1 },
-  candIdValue: { fontSize: 18, fontWeight: '900', color: UNIVERSITY_RED, marginBottom: 8 },
-  badge: { alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20 },
-  badgeText: { color: '#fff', fontSize: 12, fontWeight: '800' },
-
-  clearanceBanner: { marginBottom: 20, borderRadius: 12, overflow: 'hidden', elevation: 3 },
-  clearanceGradient: { padding: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  clearanceInfo: { flexDirection: 'row', alignItems: 'center' },
-  clearanceTitle: { color: '#fff', fontWeight: '900', fontSize: 16 },
-  clearanceSub: { color: 'rgba(255,255,255,0.7)', fontSize: 11 },
-
-  coalitionSection: { backgroundColor: LIGHT_RED_BG, borderRadius: 15, padding: 20, marginBottom: 20, borderWidth: 1, borderColor: '#FFEBEE' },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
-  sectionTitle: { fontSize: 18, fontWeight: '800', color: UNIVERSITY_RED, marginLeft: 10 },
-  joinedCoalitionBox: { backgroundColor: UNIVERSITY_RED, padding: 20, borderRadius: 12, flexDirection: 'row', alignItems: 'center' },
-  joinedLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 10, fontWeight: '900', letterSpacing: 1 },
-  joinedName: { color: '#fff', fontSize: 22, fontWeight: '900', marginVertical: 4 },
-  joinedSub: { color: 'rgba(255,255,255,0.6)', fontSize: 12 },
-  primaryActionBtn: { borderRadius: 12, overflow: 'hidden' },
-  btnGradient: { padding: 15, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
-  btnText: { color: '#fff', fontWeight: '900', fontSize: 15 },
-  promptText: { fontSize: 13, color: '#666', marginBottom: 15 },
-  coalitionJoinItem: { backgroundColor: '#fff', padding: 15, borderRadius: 10, marginBottom: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#EEE' },
-  cName: { fontWeight: '800', fontSize: 15, color: UNIVERSITY_RED },
-  cSlogan: { fontSize: 12, color: '#888', fontStyle: 'italic' },
-  emptyBox: { alignItems: 'center', padding: 20, borderStyle: 'dashed', borderWidth: 1, borderColor: '#AAA', borderRadius: 10 },
-  
-  createForm: { backgroundColor: '#fff', padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#DDD' },
-  formTitle: { fontWeight: '800', marginBottom: 10, color: UNIVERSITY_RED },
-  input: { borderBottomWidth: 1, borderBottomColor: '#DDD', paddingVertical: 8, marginBottom: 15, fontSize: 14 },
-  formButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
-  cancelBtn: { padding: 10 },
-  submitBtn: { backgroundColor: UNIVERSITY_RED, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
-  noData: { textAlign: 'center', color: '#AAA', marginTop: 5, fontSize: 13 },
-  
-  toastContainer: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 99999, alignItems: 'center' },
-  toastContent: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 25, gap: 8 },
-  toastText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  
-  infoCard: { backgroundColor: UNIVERSITY_WHITE, padding: 16, borderRadius: 16, marginBottom: 16, borderWidth: 1, borderColor: '#F5F5F5' },
-  infoRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 16 },
+  headerInfo: { marginLeft: 20, flex: 1 },
+  candIdLabel: { fontSize: 10, color: '#999', fontWeight: 'bold', marginBottom: 4 },
+  candIdValue: { fontSize: 20, fontWeight: '800', color: '#1a1a1a', marginBottom: 8 },
+  badge: { alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20 },
+  badgeText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
+  infoCard: { backgroundColor: '#fcfcfc', borderRadius: 15, padding: 20, marginBottom: 20, borderWidth: 1, borderColor: '#f0f0f0' },
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
   infoColumn: { flex: 1 },
-  infoLabel: { fontWeight: "700", fontSize: 10, color: '#AAA', textTransform: 'uppercase', marginBottom: 4 },
-  infoValue: { fontSize: 14, color: '#333', fontWeight: '800' },
-  docLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#f0f0f0', paddingTop: 12 },
-  docLinkText: { color: UNIVERSITY_RED, fontWeight: '700', fontSize: 13, marginLeft: 8 },
-  
-  manifestoCard: { backgroundColor: UNIVERSITY_WHITE, padding: 16, borderRadius: 16, marginBottom: 20, borderWidth: 1, borderColor: '#F5F5F5' },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  manifestoLabel: { fontSize: 15, fontWeight: "800", color: UNIVERSITY_RED },
-  manifestoText: { fontSize: 14, color: "#555", lineHeight: 22 },
-  manifestoFooter: { marginTop: 15, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f9f9f9' },
-  footerInfoText: { fontSize: 11, color: '#AAA', fontStyle: 'italic' },
-
-  sectionHeaderAlt: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, marginTop: 10 },
-  sectionTitleAlt: { fontSize: 18, fontWeight: '800', color: DARK_NAVY },
-  pulseContainer: { flexDirection: 'row', alignItems: 'center' },
-  pulse: { width: 8, height: 8, borderRadius: 4, backgroundColor: UNIVERSITY_RED, marginRight: 6 },
-  liveText: { fontSize: 10, fontWeight: '900', color: UNIVERSITY_RED },
-
-  timelineContainer: { paddingLeft: 10 },
-  stepWrapper: { flexDirection: 'row', paddingBottom: 25 },
-  verticalLine: { position: 'absolute', left: 12, top: 25, bottom: 0, width: 2, backgroundColor: '#EEE' },
-  stepIndicator: { width: 26, alignItems: 'center' },
-  statusCircle: { width: 26, height: 26, borderRadius: 13, justifyContent: 'center', alignItems: 'center', zIndex: 1 },
-  stepCard: { flex: 1, marginLeft: 15, backgroundColor: '#FFF', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#EEE', borderLeftWidth: 4 },
-  stepHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 },
-  stepLabel: { fontSize: 14, fontWeight: '800', color: DARK_NAVY },
-  miniBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  miniBadgeText: { fontSize: 9, fontWeight: '900' },
-  approverText: { fontSize: 11, color: '#777', marginBottom: 8 },
-  commentBox: { backgroundColor: '#F9F9F9', padding: 8, borderRadius: 8 },
-  stepComment: { fontSize: 12, color: '#444', fontStyle: 'italic' },
-  pendingComment: { fontSize: 11, color: '#AAA', fontStyle: 'italic' },
-
-  regulationsBox: { backgroundColor: '#F5F5F5', padding: 15, borderRadius: 12, marginBottom: 20 },
-  regTitle: { fontWeight: '800', color: '#444', marginBottom: 10 },
-  regItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
-  regText: { fontSize: 12, color: '#666' },
-  readMore: { fontSize: 12, color: UNIVERSITY_RED, fontWeight: '700', marginTop: 8 },
-
-  withdrawBtn: { backgroundColor: UNIVERSITY_RED, height: 55, borderRadius: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  withdrawBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
-  footerNote: { fontSize: 11, color: '#AAA', textAlign: 'center', paddingHorizontal: 20, lineHeight: 16 },
-
+  infoLabel: { fontSize: 10, color: '#999', fontWeight: 'bold', marginBottom: 5 },
+  infoValue: { fontSize: 14, fontWeight: '700', color: '#333' },
+  docLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: UNIVERSITY_RED + '10', padding: 12, borderRadius: 10, marginTop: 10 },
+  docLinkText: { color: UNIVERSITY_RED, fontSize: 13, fontWeight: '700', marginLeft: 10 },
+  manifestoCard: { backgroundColor: '#fff', borderRadius: 15, padding: 20, marginBottom: 25, borderWidth: 1, borderColor: '#f0f0f0' },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  manifestoLabel: { fontSize: 15, fontWeight: '800', color: '#1a1a1a', marginLeft: 10 },
+  manifestoText: { fontSize: 14, color: '#555', lineHeight: 22, fontStyle: 'italic' },
+  manifestoFooter: { marginTop: 15, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f5f5f5' },
+  footerInfoText: { fontSize: 11, color: '#999', textAlign: 'center' },
+  sectionHeaderAlt: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  sectionTitleAlt: { fontSize: 18, fontWeight: '800', color: '#1a1a1a' },
+  pulseContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0f0f0', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12 },
+  pulse: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#4CAF50', marginRight: 8 },
+  liveText: { fontSize: 10, fontWeight: 'bold', color: '#666' },
+  timelineContainer: { marginBottom: 30 },
+  stepWrapper: { flexDirection: 'row', marginBottom: 5 },
+  verticalLine: { position: 'absolute', left: 19, top: 40, bottom: 0, width: 2, backgroundColor: '#f0f0f0' },
+  stepIndicator: { width: 40, alignItems: 'center' },
+  statusCircle: { width: 30, height: 30, borderRadius: 15, justifyContent: 'center', alignItems: 'center', zIndex: 1 },
+  stepCard: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 15, marginBottom: 20, marginLeft: 10, borderWidth: 1, borderColor: '#f0f0f0', borderLeftWidth: 5 },
+  stepHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
+  stepLabel: { fontSize: 15, fontWeight: '700', color: '#1a1a1a', flex: 1 },
+  miniBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
+  miniBadgeText: { fontSize: 9, fontWeight: 'bold' },
+  approverText: { fontSize: 12, color: '#777', marginBottom: 10 },
+  commentBox: { backgroundColor: '#f9f9f9', padding: 10, borderRadius: 8, borderLeftWidth: 3, borderLeftColor: '#ddd' },
+  stepComment: { fontSize: 13, color: '#444', fontStyle: 'italic' },
+  pendingComment: { fontSize: 12, color: '#bbb', fontStyle: 'italic' },
+  regulationsBox: { backgroundColor: '#f5f5f5', borderRadius: 15, padding: 20, marginBottom: 25 },
+  regTitle: { fontSize: 16, fontWeight: '800', color: '#333', marginBottom: 12 },
+  regItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  regText: { fontSize: 13, color: '#666', flex: 1 },
+  readMore: { color: UNIVERSITY_RED, fontWeight: '700', fontSize: 13, marginTop: 10, textAlign: 'right' },
+  withdrawBtn: { backgroundColor: UNIVERSITY_RED, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, borderRadius: 12, marginBottom: 15 },
+  withdrawBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  footerNote: { fontSize: 12, color: '#999', textAlign: 'center', lineHeight: 18, paddingHorizontal: 10 },
+  toastContainer: { position: 'absolute', top: 0, left: 0, right: 0, alignItems: 'center', zIndex: 100 },
+  toastContent: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 25, elevation: 5 },
+  toastText: { color: '#fff', fontWeight: 'bold', marginLeft: 8, fontSize: 12 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  certCard: { backgroundColor: '#FFF', borderRadius: 20, width: '100%', overflow: 'hidden' },
-  certHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: '#EEE' },
-  certHeaderText: { fontWeight: '900', color: DARK_NAVY, fontSize: 16 },
-  certBody: { padding: 30, alignItems: 'center' },
-  uniLogo: { width: 70, height: 70, resizeMode: 'contain', marginBottom: 15 },
-  uniName: { fontSize: 18, fontWeight: '900', color: UNIVERSITY_RED },
-  certType: { fontSize: 11, fontWeight: '700', color: '#777', marginTop: 5, letterSpacing: 1 },
-  certDivider: { width: '80%', height: 1, backgroundColor: '#EEE', marginVertical: 20 },
-  certContent: { textAlign: 'center', fontSize: 14, lineHeight: 22, color: '#333' },
-  certSignature: { marginTop: 30, alignItems: 'center' },
-  sigText: { fontSize: 11, fontWeight: 'bold', color: '#2E7D32' },
-  sigDate: { fontSize: 10, color: '#AAA', marginTop: 4 },
-  downloadBtn: { backgroundColor: UNIVERSITY_RED, padding: 18, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
-  downloadBtnText: { color: '#FFF', fontWeight: '800' }
+  certCard: { backgroundColor: '#fff', width: '100%', borderRadius: 20, padding: 25 },
+  certHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  certHeaderText: { fontSize: 18, fontWeight: '800', color: '#333' },
+  certBody: { alignItems: 'center', borderWidth: 2, borderColor: '#f0f0f0', padding: 20, borderRadius: 15, marginBottom: 20 },
+  uniLogo: { width: 60, height: 60, marginBottom: 10 },
+  uniName: { fontSize: 16, fontWeight: '800', color: UNIVERSITY_RED, marginBottom: 5 },
+  certType: { fontSize: 12, fontWeight: 'bold', color: '#555', letterSpacing: 1, marginBottom: 15 },
+  certDivider: { width: '80%', height: 1, backgroundColor: '#eee', marginBottom: 15 },
+  certContent: { textAlign: 'center', fontSize: 14, color: '#444', lineHeight: 22, marginBottom: 20 },
+  certSignature: { alignItems: 'center', marginTop: 10 },
+  sigText: { fontSize: 11, color: '#777', fontWeight: '600' },
+  sigDate: { fontSize: 10, color: '#999', marginTop: 4 },
+  downloadBtn: { backgroundColor: '#1A237E', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 15, borderRadius: 12 },
+  downloadBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
 });

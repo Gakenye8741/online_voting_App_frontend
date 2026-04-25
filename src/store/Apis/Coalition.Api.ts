@@ -53,7 +53,7 @@ export interface MessageResponse {
 export const coalitionApi = createApi({
   reducerPath: "coalitionApi",
   baseQuery: fetchBaseQuery({
-    baseUrl: "https://online-voting-system-oq4p.onrender.com/api/coalitions",
+    baseUrl: "https://laikipiavotingsystem-f3aabefwhrendaae.southafricanorth-01.azurewebsites.net/api/coalitions",
     prepareHeaders: async (headers) => {
       const token = await AsyncStorage.getItem("token");
       if (token) headers.set("Authorization", `Bearer ${token}`);

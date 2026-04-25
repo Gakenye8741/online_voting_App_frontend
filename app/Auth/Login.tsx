@@ -64,7 +64,6 @@ const LoginScreen: React.FC = () => {
         school: res.user.school ?? null,
       };
 
-      // 1. Storage updates
       await Promise.all([
         AsyncStorage.setItem("token", res.token),
         AsyncStorage.setItem("user", JSON.stringify(userWithSchool)),
@@ -72,8 +71,6 @@ const LoginScreen: React.FC = () => {
         AsyncStorage.setItem("requireSecretCode", res.requireSecretCode ? "true" : "false"),
       ]);
 
-      // 2. CRITICAL: Update Redux state BEFORE registering the push token
-      // This ensures the API headers have the bearer token for the next call
       dispatch(
         setCredentials({
           user: userWithSchool,
@@ -83,7 +80,6 @@ const LoginScreen: React.FC = () => {
         })
       );
 
-      // 3. Register Push Token (Silent failure to allow login)
       const deviceToken = await getPushToken();
       if (deviceToken && (res.user.id || res.user._id)) {
         try {
@@ -96,7 +92,6 @@ const LoginScreen: React.FC = () => {
         }
       }
 
-      // 4. Navigation logic
       if (res.requireProfileCompletion) {
         router.replace("/Auth/complete-profile");
       } else if (res.requireSecretCode) {
@@ -108,6 +103,21 @@ const LoginScreen: React.FC = () => {
       const errorMessage = err.data?.message || err.data?.error || err.message || "Unknown error";
       Alert.alert("Login failed", errorMessage);
     }
+  };
+
+  // Navigates to the OTP request page for recovery
+  const handleForgotPassword = () => {
+    router.push({
+      pathname: "/Auth/RequestOtp",
+      params: { reason: "password_reset" }
+    });
+  };
+
+  const handleForgotSecretCode = () => {
+    router.push({
+      pathname: "/Auth/RequestOtp",
+      params: { reason: "secret_code_reset" }
+    });
   };
 
   return (
@@ -125,7 +135,7 @@ const LoginScreen: React.FC = () => {
           />
 
           <Animatable.Text animation="fadeInDown" delay={300} style={styles.title}>
-            Welcome to the Laikipia E-Voting App
+             E-Laikipia Voting App
           </Animatable.Text>
           <Animatable.Text animation="fadeInDown" delay={500} style={styles.subtitle}>
             Please login to continue
@@ -183,9 +193,12 @@ const LoginScreen: React.FC = () => {
             {errors.password && <Text style={styles.error}>{errors.password.message}</Text>}
           </Animatable.View>
 
-          <Animatable.View animation="fadeInUp" delay={1100}>
-            <TouchableOpacity style={styles.forgotPassword}>
+          <Animatable.View animation="fadeInUp" delay={1100} style={styles.recoveryLinks}>
+            <TouchableOpacity onPress={handleForgotPassword}>
               <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleForgotSecretCode}>
+              <Text style={styles.forgotSecretText}>Reset Secret Code</Text>
             </TouchableOpacity>
           </Animatable.View>
 
@@ -220,8 +233,13 @@ const styles = StyleSheet.create({
   passwordContainer: { position: "relative", marginBottom: 10, width: '100%' },
   eyeButton: { position: "absolute", right: 10, top: 12 },
   error: { color: "#ff4d4f", marginBottom: 10, marginLeft: 5 },
-  forgotPassword: { alignSelf: "flex-end", marginBottom: 20 },
-  forgotPasswordText: { color: "#c8102e", fontWeight: "500" },
+  recoveryLinks: { 
+    flexDirection: "row", 
+    justifyContent: "space-between", 
+    marginBottom: 25 
+  },
+  forgotPasswordText: { color: "#c8102e", fontWeight: "600", fontSize: 14 },
+  forgotSecretText: { color: "#555", fontWeight: "500", fontSize: 14 },
   button: { backgroundColor: "#c8102e", paddingVertical: 15, borderRadius: 8, alignItems: "center", marginBottom: 15 },
   buttonDisabled: { backgroundColor: "#7a0a1e" },
   buttonText: { color: "#fff", fontWeight: "bold", fontSize: 18 },

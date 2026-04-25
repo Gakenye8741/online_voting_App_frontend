@@ -136,8 +136,8 @@ export default function VotingGuidelinesScreen() {
           </TouchableOpacity>
           <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.logo} />
           <View>
-            <Text style={styles.headerTitle}>Guidelines</Text>
-            <Text style={styles.headerSub}>E-VOTE PORTAL</Text>
+            <Text style={styles.headerTitle}>Voting Guidelines</Text>
+            <Text style={styles.headerSub}>LAIKIPIA E-VOTE PORTAL</Text>
           </View>
         </View>
         <View style={styles.statusGroup}>

@@ -24,7 +24,7 @@ interface NotificationsResponse {
 export const notificationApi = createApi({
   reducerPath: "notificationApi",
   baseQuery: fetchBaseQuery({
-    baseUrl: "https://online-voting-system-oq4p.onrender.com/api/notifications",
+    baseUrl: "https://laikipiavotingsystem-f3aabefwhrendaae.southafricanorth-01.azurewebsites.net/api/notifications",
     prepareHeaders: async (headers, { getState }) => {
       try {
         // 1. Priority: Get token from Redux state (Instant sync after login)

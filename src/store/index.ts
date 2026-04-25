@@ -12,6 +12,7 @@ import { notificationApi } from "./Apis/Notification.Api";
 import { coalitionApi } from "./Apis/Coalition.Api";
 import { votesApi } from "./Apis/Voting.Api";
 import { delegatesApi } from "./Apis/Delegate.Api";
+import { appealsApi } from "./Apis/Appeal.Api";
 
 export const store = configureStore({
   reducer: {
@@ -27,10 +28,11 @@ export const store = configureStore({
     [coalitionApi.reducerPath]: coalitionApi.reducer,
     [votesApi.reducerPath]: votesApi.reducer,
     [delegatesApi.reducerPath]: delegatesApi.reducer,
+    [appealsApi.reducerPath]: appealsApi.reducer,
 
   },
   middleware: (getDefaultMiddleware) =>
-    getDefaultMiddleware().concat(authApi.middleware,candidatesApi.middleware,electionsApi.middleware,applicationApi.middleware,positionApi.middleware, usersApi.middleware, notificationApi.middleware,coalitionApi.middleware, votesApi.middleware, delegatesApi.middleware),
+    getDefaultMiddleware().concat(authApi.middleware,candidatesApi.middleware,electionsApi.middleware,applicationApi.middleware,positionApi.middleware, usersApi.middleware, notificationApi.middleware,coalitionApi.middleware, votesApi.middleware, delegatesApi.middleware,appealsApi.middleware),
 });
 
 export type RootState = ReturnType<typeof store.getState>;

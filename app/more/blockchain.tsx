@@ -22,7 +22,7 @@ import { useRouter } from 'expo-router';
 
 const UNIVERSITY_RED = '#D32F2F';
 const DARK_NAVY = '#1A237E';
-const CONTRACT_ADDRESS = "0x742d35Cc6634C0532925a3b844Bc454e4438f44e"; 
+const CONTRACT_ADDRESS = "0x3284c9aeE02897117b04Eac1e27f9c30bC6067b4"; 
 
 export default function BlockchainScreen() {
   const router = useRouter();
@@ -60,7 +60,7 @@ export default function BlockchainScreen() {
           </TouchableOpacity>
           <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.logo} />
           <View>
-            <Text style={styles.headerTitle}>Ledger Audit</Text>
+            <Text style={styles.headerTitle}>BLOCKCHAIN SECTION</Text>
             <Text style={styles.headerSub}>TRANSPARENCY PORTAL</Text>
           </View>
         </View>
@@ -90,12 +90,12 @@ export default function BlockchainScreen() {
               </View>
               <View>
                 <Text style={styles.cardTitle}>Verified Smart Contract</Text>
-                <Text style={styles.cardTag}>V-CORE ENGINE v2.1</Text>
+            
               </View>
             </View>
 
             <View style={styles.addressContainer}>
-                <Text style={styles.addressLabel}>DEPLOYED ADDRESS (SEPOLIA)</Text>
+                <Text style={styles.addressLabel}>DEPLOYED ADDRESS (ETHEREUM SEPOLIA)</Text>
                 <TouchableOpacity 
                     style={styles.addressBox} 
                     onPress={() => copyToClipboard(CONTRACT_ADDRESS)}
@@ -165,7 +165,7 @@ export default function BlockchainScreen() {
             <View style={styles.verticalDivider} />
             <MaterialCommunityIcons name="shield-lock-outline" size={24} color={UNIVERSITY_RED} />
           </View>
-          <Text style={styles.versionText}>POWERED BY LAIKIPIA COMPUTING SOCIETY • © 2026</Text>
+          <Text style={styles.versionText}>POWERED BY GAKENYE NDIRITU • © 2026</Text>
         </View>
 
         <View style={{ height: 40 }} />

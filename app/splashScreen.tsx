@@ -26,7 +26,7 @@ export default function SplashScreen() {
   const gridFade = useRef(new Animated.Value(0)).current;
   const logoPulse = useRef(new Animated.Value(1)).current;
 
-  const SPLASH_DURATION = 14000; // 14 Seconds as requested
+  const SPLASH_DURATION = 10000; // 10 Seconds as requested
 
   // Floating nodes with random drift
   const dots = Array.from({ length: 20 }, () => ({

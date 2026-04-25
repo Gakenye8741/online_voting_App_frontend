@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
   ScrollView,
   Image,
   Modal,
-  DimensionValue, // Added for type safety
+  DimensionValue,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -29,7 +29,6 @@ const BG_COLOR = "#F9FAFB";
 const SUCCESS_GREEN = "#2E7D32";
 const WARNING_GOLD = "#F9A825";
 
-// Define the strength type to fix the 'DimensionValue' error
 interface StrengthState {
   label: string;
   color: string;
@@ -48,39 +47,32 @@ export default function UpdatePasswordScreen() {
 
   const [updatePassword] = useUpdatePasswordMutation();
 
-  // Fix 1: Properly typed strength state
-  const [strength, setStrength] = useState<StrengthState>({ 
-    label: 'VOID', 
-    color: '#DDD', 
-    percent: '0%' 
-  });
-
+  // Load identity from storage
   useEffect(() => {
     const loadUser = async () => {
-      const storedUser = await AsyncStorage.getItem("user");
-      if (storedUser) {
-        const parsedUser = JSON.parse(storedUser);
-        setRegNo(parsedUser.reg_no);
+      try {
+        const storedUser = await AsyncStorage.getItem("user");
+        if (storedUser) {
+          const parsedUser = JSON.parse(storedUser);
+          setRegNo(parsedUser.reg_no);
+        }
+      } catch (e) {
+        console.error("Failed to load user session", e);
       }
     };
     loadUser();
   }, []);
 
-  useEffect(() => {
-    validatePassword(password);
-  }, [password]);
-
-  const validatePassword = (pass: string) => {
-    if (pass.length === 0) return setStrength({ label: 'VOID', color: '#DDD', percent: '0%' });
-    if (pass.length < 6) return setStrength({ label: 'WEAK', color: UNIVERSITY_RED, percent: '30%' });
+  // Calculate Strength on the fly for better performance
+  const strength: StrengthState = useMemo(() => {
+    if (password.length === 0) return { label: 'VOID', color: '#DDD', percent: '0%' };
+    if (password.length < 6) return { label: 'WEAK', color: UNIVERSITY_RED, percent: '30%' };
     
-    // Regex for strong password
-    const isSecure = pass.match(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/);
-    if (isSecure) {
-      return setStrength({ label: 'SECURE', color: SUCCESS_GREEN, percent: '100%' });
-    }
-    return setStrength({ label: 'MODERATE', color: WARNING_GOLD, percent: '65%' });
-  };
+    const isSecure = password.match(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/);
+    if (isSecure) return { label: 'SECURE', color: SUCCESS_GREEN, percent: '100%' };
+    
+    return { label: 'MODERATE', color: WARNING_GOLD, percent: '65%' };
+  }, [password]);
 
   const handleCommitRequest = () => {
     if (!password || !confirmPassword) {
@@ -88,31 +80,32 @@ export default function UpdatePasswordScreen() {
       return;
     }
     if (password !== confirmPassword) {
-      Alert.alert("Mismatch", "Passwords do not match.");
+      Alert.alert("Mismatch", "The passwords entered do not match.");
       return;
     }
     if (password.length < 6) {
-      Alert.alert("Security Breach", "Password must be at least 6 characters.");
+      Alert.alert("Security Breach", "Security protocol requires at least 6 characters.");
       return;
     }
     setShowConfirmModal(true);
   };
 
   const handleFinalSubmit = async () => {
-    // Fix 2: Handle 'string | null' by providing a fallback or checking truthiness
     if (!regNo) {
-      Alert.alert("Error", "Voter identity not found.");
+      Alert.alert("Identity Error", "Voter identity node not found in session.");
       return;
     }
 
     setShowConfirmModal(false);
     setLoading(true);
     try {
-      const res: any = await updatePassword({ reg_no: regNo, password }).unwrap();
-      Alert.alert("Success", res.message || "Credential keys updated successfully!");
+      // Matches your mutation: { reg_no: string; password: string }
+      const res = await updatePassword({ reg_no: regNo, password }).unwrap();
+      Alert.alert("Success", "Credential keys updated. Please use your new password for future access.");
       router.replace("/(tabs)"); 
     } catch (err: any) {
-      Alert.alert("Access Denied", err?.data?.error || "Registry update failed.");
+      const errorMsg = err?.data?.message || err?.data?.error || "Registry update failed.";
+      Alert.alert("Access Denied", errorMsg);
     } finally {
       setLoading(false);
     }
@@ -133,7 +126,7 @@ export default function UpdatePasswordScreen() {
         </Animatable.View>
         <View style={styles.navRight}>
           <View style={styles.secureBadge}>
-            <MaterialCommunityIcons name="shield-check" size={14} color={UNIVERSITY_RED} />
+            <MaterialCommunityIcons name="shield-lock" size={16} color={UNIVERSITY_RED} />
           </View>
         </View>
       </View>
@@ -144,20 +137,21 @@ export default function UpdatePasswordScreen() {
           <Animatable.View animation="fadeInDown" style={styles.header}>
              <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.mainLogo} />
              <Text style={styles.headerTitle}>Rotate Access Keys</Text>
-             <Text style={styles.headerSub}>NODE ID: {regNo || "UNKNOWN"}</Text>
+             <Text style={styles.headerSub}>NODE ID: {regNo || "VERIFYING..."}</Text>
           </Animatable.View>
 
           <View style={styles.formSection}>
-            <Text style={styles.inputLabel}>New Password</Text>
+            <Text style={styles.inputLabel}>New Access Key</Text>
             <View style={styles.inputWrapper}>
               <Ionicons name="lock-closed-outline" size={18} color={UNIVERSITY_RED} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="Min 6 characters"
+                placeholder="Enter new password"
                 placeholderTextColor="#999"
                 secureTextEntry={!showPassword}
                 value={password}
                 onChangeText={setPassword}
+                autoCapitalize="none"
               />
               <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
                 <Ionicons name={showPassword ? "eye-off" : "eye"} size={20} color="#BBB" />
@@ -166,22 +160,22 @@ export default function UpdatePasswordScreen() {
 
             <View style={styles.strengthRow}>
                 <View style={styles.strengthBarBackground}>
-                    {/* Width type is now validated by DimensionValue */}
                     <View style={[styles.strengthBarActive, { width: strength.percent, backgroundColor: strength.color }]} />
                 </View>
                 <Text style={[styles.strengthText, { color: strength.color }]}>{strength.label}</Text>
             </View>
 
-            <Text style={styles.inputLabel}>Confirm New Password</Text>
+            <Text style={styles.inputLabel}>Confirm Rotation</Text>
             <View style={styles.inputWrapper}>
               <Ionicons name="key-outline" size={18} color={UNIVERSITY_RED} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="Confirm your entry"
+                placeholder="Repeat new password"
                 placeholderTextColor="#999"
                 secureTextEntry={!showConfirm}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
+                autoCapitalize="none"
               />
               <TouchableOpacity onPress={() => setShowConfirm(!showConfirm)} style={styles.eyeIcon}>
                 <Ionicons name={showConfirm ? "eye-off" : "eye"} size={20} color="#BBB" />
@@ -189,7 +183,7 @@ export default function UpdatePasswordScreen() {
             </View>
           </View>
 
-          <Animatable.View animation="fadeInUp" delay={500} style={styles.footer}>
+          <Animatable.View animation="fadeInUp" delay={300} style={styles.footer}>
             <TouchableOpacity
               style={[styles.primaryBtn, loading && styles.btnDisabled]}
               onPress={handleCommitRequest}
@@ -199,7 +193,7 @@ export default function UpdatePasswordScreen() {
                 <ActivityIndicator color={CLEAN_WHITE} />
               ) : (
                 <>
-                  <MaterialCommunityIcons name="shield-key" size={20} color={CLEAN_WHITE} />
+                  <MaterialCommunityIcons name="shield-sync" size={20} color={CLEAN_WHITE} />
                   <Text style={styles.primaryBtnText}>COMMIT CHANGES</Text>
                 </>
               )}
@@ -207,7 +201,7 @@ export default function UpdatePasswordScreen() {
 
             <TouchableOpacity
               style={styles.secondaryBtn}
-              onPress={() => router.replace("/(tabs)")}
+              onPress={() => router.back()}
               disabled={loading}
             >
               <Text style={styles.secondaryBtnText}>ABORT UPDATE</Text>
@@ -216,7 +210,7 @@ export default function UpdatePasswordScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <Modal visible={showConfirmModal} transparent animationType="fade">
+      <Modal visible={showConfirmModal} transparent animationType="fade" onRequestClose={() => setShowConfirmModal(false)}>
         <View style={styles.modalOverlay}>
             <Animatable.View animation="zoomIn" duration={300} style={styles.modalContainer}>
                 <View style={styles.modalIconCircle}>
@@ -224,7 +218,7 @@ export default function UpdatePasswordScreen() {
                 </View>
                 <Text style={styles.modalTitle}>Confirm Key Rotation</Text>
                 <Text style={styles.modalDesc}>
-                    Are you sure you want to update your access credentials? You will be logged out of other sessions.
+                    Are you sure you want to update your access credentials? This action is immediate and will affect all active sessions.
                 </Text>
                 <View style={styles.modalActions}>
                     <TouchableOpacity style={styles.modalCancel} onPress={() => setShowConfirmModal(false)}>

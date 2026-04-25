@@ -38,7 +38,7 @@ export interface MessageResponse {
 export const candidatesApi = createApi({
   reducerPath: "candidatesApi",
   baseQuery: fetchBaseQuery({
-    baseUrl: "https://online-voting-system-oq4p.onrender.com/api/candidates",
+    baseUrl: "https://laikipiavotingsystem-f3aabefwhrendaae.southafricanorth-01.azurewebsites.net/api/candidates",
     prepareHeaders: async (headers) => {
       const token = await AsyncStorage.getItem("token");
       if (token) {

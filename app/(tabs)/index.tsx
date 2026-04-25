@@ -83,7 +83,7 @@ const QuickStats = ({ candidateCount, positionCount, daysLeft, remainingElection
           <View style={styles.statIconBg}>
             <Ionicons name={stat.icon as any} size={18} color="#c8102e" />
           </View>
-          <Text style={styles.statValue}>{stat.value}</Text>
+          <Text style={stat.label.includes("Days") ? [styles.statValue, {fontSize: 14}] : styles.statValue}>{stat.value}</Text>
           <Text style={styles.statLabel}>{stat.label}</Text>
         </Animatable.View>
       ))}
@@ -97,6 +97,8 @@ const ElectionFAQ = () => {
   const faqs = [
     { q: "How do I cast my vote online?", a: "Navigate to the 'Vote' tab, choose your candidates for each available seat, and click 'Cast Vote'. Your choice is then encrypted and sent to the blockchain." },
     { q: "Is my vote truly anonymous?", a: "Yes. Using blockchain technology, your identity is verified but your specific vote is decoupled from your personal details to ensure total privacy." },
+    { q: "Do I need to pay for transactions (Gas fees)?", a: "No. The system uses a 'Meta-Transaction' model where the University/Admin pays the Ethereum Sepolia gas fees so students can vote for free." },
+    { q: "What is Ethereum Sepolia?", a: "It is the blockchain network where all election results are stored. It ensures that once a vote is cast, it can never be deleted or modified by anyone, including the admins." },
     { q: "Can I change my vote later?", a: "No. To maintain election integrity, once a vote is recorded on the blockchain, it cannot be altered or deleted." }
   ];
 
@@ -231,6 +233,7 @@ interface User {
 interface Position {
   id: string;
   name: string;
+  election_id?: string;
 }
 
 export default function Home() {
@@ -271,8 +274,21 @@ export default function Home() {
     return "Good night";
   };
 
+  const { data: electionsData, refetch: refetchElections, isLoading: isLoadingElections } = useGetAllElectionsQuery();
+  const { data: userCountData, refetch: refetchUserCount } = useGetUsersCountQuery();
+
+  // Find the latest election
+  const latestElection = useMemo(() => {
+    if (!electionsData?.elections) return null;
+    return [...electionsData.elections].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+  }, [electionsData]);
+
+  const latestElectionId = latestElection?.id || "";
+
+  // REFINED POSITION LOGIC: Fetch and filter positions for the LATEST election only
   useEffect(() => {
     const fetchPositions = async () => {
+      if (!latestElectionId) return;
       try {
         const token = await AsyncStorage.getItem("token");
         const res = await fetch("https://online-voting-system-oq4p.onrender.com/api/positions/", {
@@ -281,7 +297,10 @@ export default function Home() {
         const data: { positions: Position[] } = await res.json();
         const map: Record<string, string> = {};
         if (data.positions) {
-          data.positions.forEach((pos) => (map[pos.id] = pos.name));
+          // Filter positions that belong to this specific latest election
+          data.positions
+            .filter(pos => !pos.election_id || pos.election_id === latestElectionId)
+            .forEach((pos) => (map[pos.id] = pos.name));
         }
         setPositionsMap(map);
       } catch (err) {
@@ -289,22 +308,8 @@ export default function Home() {
       }
     };
     fetchPositions();
-  }, []);
+  }, [latestElectionId]);
 
-  const { data: electionsData, refetch: refetchElections, isLoading: isLoadingElections } = useGetAllElectionsQuery();
-  const { data: userCountData, refetch: refetchUserCount } = useGetUsersCountQuery();
-
-  // Find the latest election based on createdAt
-  const sortedElections = useMemo(() => {
-    return electionsData?.elections 
-      ? [...electionsData.elections].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      : [];
-  }, [electionsData]);
-
-  const latestElection = sortedElections[0];
-  const latestElectionId = latestElection?.id || "";
-  
-  // LOGIC UPDATE: Determine roadmap status based on delegate date
   const roadmapStatus = useMemo(() => {
     if (!latestElection) return "upcoming";
     const now = new Date().getTime();
@@ -316,8 +321,8 @@ export default function Home() {
 
   const remainingElectionsCount = useMemo(() => {
     const now = new Date().getTime();
-    return sortedElections.filter(e => new Date(e.start_date).getTime() > now).length;
-  }, [sortedElections]);
+    return (electionsData?.elections || []).filter(e => new Date(e.start_date).getTime() > now).length;
+  }, [electionsData]);
 
   const { data: allCandidatesData, isLoading: isLoadingAll } = useGetCandidatesByElectionQuery(latestElectionId, { skip: !latestElectionId });
   const { data: resultsData, refetch: refetchResults, isLoading: isLoadingResults } = useGetElectionResultsQuery(latestElectionId, { skip: !latestElectionId });
@@ -328,15 +333,11 @@ export default function Home() {
     return { totalVotes: total };
   }, [resultsData]);
 
-  // UPDATED: Filter to only show candidates from the latest election
   const candidates = useMemo(() => {
     let list = allCandidatesData?.candidates || [];
-    
-    // Safety check to ensure we only show candidates linked to the latest ID
     if (latestElectionId) {
       list = list.filter(c => c.election_id === latestElectionId);
     }
-
     if (search) {
       list = list.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
     }
@@ -364,11 +365,6 @@ export default function Home() {
   const getDaysDiff = (date: string) => {
     const diff = new Date(date).getTime() - new Date().getTime();
     return Math.ceil(diff / (1000 * 60 * 60 * 24));
-  };
-
-  const handleVisitCandidate = (id: string) => {
-    setModalVisible(false);
-    router.push(`/Candidate/${id}` as any);
   };
 
   return (
@@ -416,74 +412,84 @@ export default function Home() {
         />
 
        <Animatable.View animation="fadeInUp" duration={1000} style={styles.electionCard}>
-  <View style={styles.cardHeader}>
-    <Text style={styles.cardTitle}>
-      {latestElection?.name || "No election available"}
-    </Text>
-    {/* Dynamic Status Badge */}
-    {latestElection?.status === 'ongoing' ? (
-      <View style={styles.liveBadge}>
-        <Text style={styles.liveBadgeText}>LIVE</Text>
-      </View>
-    ) : (
-      <View style={[styles.liveBadge, { backgroundColor: '#666' }]}>
-        <Text style={styles.liveBadgeText}>
-          {latestElection?.status?.toUpperCase() || "UPCOMING"}
-        </Text>
-      </View>
-    )}
-  </View>
-  
-  {isLoadingElections || isLoadingResults ? (
-    <ActivityIndicator size="small" color="#c8102e" />
-  ) : latestElection ? (
-    <>
-      {/* Logic for Countdown and Status Display */}
-      {new Date(latestElection.start_date).getTime() > new Date().getTime() ? (
-        // 1. Election hasn't started yet
-        <CountdownTimer 
-          targetDate={latestElection.start_date} 
-          label="Polls Open In:" 
-        />
-      ) : new Date(latestElection.end_date).getTime() > new Date().getTime() ? (
-        // 2. Election is currently happening
-        <View>
-          <CountdownTimer 
-            targetDate={latestElection.end_date} 
-            label="Polls Close In:" 
-          />
-          <ParticipationTracker 
-            totalVotes={totalVotes} 
-            totalVoters={userCountData?.count || 0} 
-          />
-        </View>
-      ) : new Date(latestElection.delegate_end_date).getTime() > new Date().getTime() ? (
-        // 3. Main election closed, but Delegate Period is active WITH COUNTDOWN
-        <View>
-          <View style={styles.delegateInfoBox}>
-            <Text style={styles.delegateLabel}>Delegate Voting Period Active</Text>
-            <Text style={styles.delegateTime}>
-              Official results are being finalized by delegates.
-            </Text>
+          <View style={styles.cardHeader}>
+            <View>
+                <Text style={styles.cardTitle}>
+                {latestElection?.name || "No election available"}
+                </Text>
+                {/* NEW: Election Category Detail */}
+                <Text style={{ fontSize: 12, color: '#c8102e', fontWeight: '600' }}>
+                   {latestElection?.name.toUpperCase() || "UNIVERSITY"} ELECTION
+                </Text>
+            </View>
+            {latestElection?.status === 'ongoing' ? (
+              <View style={styles.liveBadge}>
+                <Text style={styles.liveBadgeText}>LIVE</Text>
+              </View>
+            ) : (
+              <View style={[styles.liveBadge, { backgroundColor: '#666' }]}>
+                <Text style={styles.liveBadgeText}>
+                  {latestElection?.status?.toUpperCase() || "UPCOMING"}
+                </Text>
+              </View>
+            )}
           </View>
-          <CountdownTimer 
-            targetDate={latestElection.delegate_end_date} 
-            label="Delegate Voting Ends In:" 
-          />
-        </View>
-      ) : (
-        // 4. Everything is finished
-        <View style={styles.endedTag}>
-          <Text style={styles.statusEnded}>Election & Delegate Period Closed</Text>
-        </View>
-      )}
-      
-      <Text style={{ fontSize: 10, color: '#999', marginTop: 10, textAlign: 'center' }}>
-        Ref: {latestElection.id.substring(0, 8)}...
-      </Text>
-    </>
-  ) : null}
-</Animatable.View>
+  
+          {isLoadingElections || isLoadingResults ? (
+            <ActivityIndicator size="small" color="#c8102e" />
+          ) : latestElection ? (
+            <>
+              {new Date(latestElection.start_date).getTime() > new Date().getTime() ? (
+                <CountdownTimer 
+                  targetDate={latestElection.start_date} 
+                  label="Polls Open In:" 
+                />
+              ) : new Date(latestElection.end_date).getTime() > new Date().getTime() ? (
+                <View>
+                  <CountdownTimer 
+                    targetDate={latestElection.end_date} 
+                    label="Polls Close In:" 
+                  />
+                  <ParticipationTracker 
+                    totalVotes={totalVotes} 
+                    totalVoters={userCountData?.count || 0} 
+                  />
+                </View>
+              ) : new Date(latestElection.delegate_end_date).getTime() > new Date().getTime() ? (
+                <View>
+                  <View style={styles.delegateInfoBox}>
+                    <Text style={styles.delegateLabel}>Delegate Voting Period Active</Text>
+                    <Text style={styles.delegateTime}>
+                      Main polls closed. Verification by delegates ongoing.
+                    </Text>
+                  </View>
+                  <CountdownTimer 
+                    targetDate={latestElection.delegate_end_date} 
+                    label="Delegate Voting Ends In:" 
+                  />
+                </View>
+              ) : (
+                <View style={styles.endedTag}>
+                  <Text style={styles.statusEnded}>Election & Delegate Period Closed</Text>
+                </View>
+              )}
+              
+              {/* NEW: Display Start/End Dates for clarity */}
+              <View style={{ marginTop: 15, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 10 }}>
+                  <Text style={{ fontSize: 11, color: '#777' }}>
+                    <Ionicons name="calendar-outline" size={10} /> Main Voting: {new Date(latestElection.start_date).toLocaleDateString()} - {new Date(latestElection.end_date).toLocaleDateString()}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: '#777', marginTop: 3 }}>
+                    <Ionicons name="medal-outline" size={10} /> Tallying Ends: {new Date(latestElection.delegate_end_date).toLocaleDateString()}
+                  </Text>
+              </View>
+
+              <Text style={{ fontSize: 10, color: '#999', marginTop: 10, textAlign: 'center' }}>
+                Blockchain Node: Ethereum Sepolia | Ref: {latestElection.id.substring(0, 8)}...
+              </Text>
+            </>
+          ) : null}
+        </Animatable.View>
 
         <View style={styles.trustCard}>
            <View style={styles.trustIconBg}><Ionicons name="shield-checkmark" size={24} color="#fff" /></View>
@@ -550,6 +556,7 @@ export default function Home() {
                      <View style={{ flex: 1 }}>
                         <Text style={styles.modalName}>{selectedCandidate.name}</Text>
                         <Text style={styles.modalPosition}>{positionsMap[selectedCandidate.position_id] || "Position"}</Text>
+                        
                      </View>
                      <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeModalBtn}>
                         <Ionicons name="close" size={24} color="#333" />
@@ -558,12 +565,11 @@ export default function Home() {
                   <View style={styles.manifestoContainer}>
                      <Text style={styles.manifestoTitle}>My Manifesto Preview</Text>
                      <Text style={styles.modalManifesto} numberOfLines={4}>
-                        {selectedCandidate.manifesto || "The candidate has not provided a manifesto yet."}
+                        {selectedCandidate.manifesto|| "Check the candidate's page for the latest manifesto updates and platform details.."}
                      </Text>
                   </View>
                 </>
               )}
-             
             </Animatable.View>
           </View>
         </Modal>
@@ -573,7 +579,6 @@ export default function Home() {
     </SafeAreaView>
   );
 }
-
 const styles = StyleSheet.create({
   // New Toast Styles
   toastContainer: {

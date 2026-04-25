@@ -63,7 +63,7 @@ export default function DetailedPrivacyPolicy() {
             />
             <View style={styles.headerTextGroup}>
               <Text style={styles.topNavTitle}>Privacy & Governance</Text>
-              <Text style={styles.topNavSub}>LU-EVOTE-SECURE-PROTOCOL</Text>
+              <Text style={styles.topNavSub}>LAIKIPIA-EVOTE-PRIVACY SECTION</Text>
             </View>
           </View>
         </View>
@@ -150,7 +150,7 @@ export default function DetailedPrivacyPolicy() {
         <View style={styles.footer}>
           <View style={styles.footerDivider} />
           <Text style={styles.footerBrand}>ICT DIRECTORATE • DATA PROTECTION OFFICE</Text>
-          <Text style={styles.footerSub}>SYSTEM ARCHITECT: GAKENYE NDIRITU • v1.0.4</Text>
+          <Text style={styles.footerSub}>SYSTEM ARCHITECT: GAKENYE NDIRITU •</Text>
         </View>
 
       </ScrollView>

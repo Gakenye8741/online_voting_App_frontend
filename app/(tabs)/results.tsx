@@ -39,8 +39,6 @@ import { useGetExecutiveResultsQuery } from '@/src/store/Apis/Delegate.Api';
 const { width, height } = Dimensions.get('window');
 const UNIVERSITY_RED = '#c8102e';
 const GOLD = '#F59E0B';
-const DARK_BG = '#0f172a';
-const SLATE_GRAY = '#475569';
 const EMERALD = '#10b981';
 const AMAKERE_GOLD = '#c8102e';
 
@@ -55,11 +53,6 @@ Animatable.initializeRegistryWithDefinitions({
     0.5: { opacity: 1 },
     1: { opacity: 0.4 },
   },
-  float: {
-    0: { transform: [{ translateY: 0 }] },
-    0.5: { transform: [{ translateY: -10 }] },
-    1: { transform: [{ translateY: 0 }] },
-  },
   pulseSlow: {
     0: { transform: [{ scale: 1 }] },
     0.5: { transform: [{ scale: 1.05 }] },
@@ -67,7 +60,7 @@ Animatable.initializeRegistryWithDefinitions({
   }
 });
 
-interface ElectionResult {
+interface Candidate {
   candidate_id: string;
   candidate_name: string | null;
   position_id: string;
@@ -93,9 +86,13 @@ const ResultsScreen = () => {
   const route = useRoute();
   const params = (route?.params as any) || {};
 
+  // YOUR REQUESTED SYNTAX & STATE
+  const [search, setSearch] = useState("");
+  const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [positionsMap, setPositionsMap] = useState<Record<string, string>>({});
+
   const [activeTab, setActiveTab] = useState<'main' | 'coalition' | 'analytics'>('main');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedPositionId, setSelectedPositionId] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
   const [isSlateModalVisible, setIsSlateModalVisible] = useState(false);
   const [activeCoalition, setActiveCoalition] = useState<any>(null);
@@ -111,6 +108,15 @@ const ResultsScreen = () => {
   const { data: allElections, isLoading: loadingElections } = useGetAllElectionsQuery();
   const { data: positionsData, isLoading: loadingPositions } = useGetAllPositionsQuery();
   const { data: userCountData } = useGetUsersCountQuery();
+
+  // Populate positionsMap
+  useEffect(() => {
+    if (positionsData?.positions) {
+      const map: Record<string, string> = {};
+      positionsData.positions.forEach((p: any) => { map[p.id] = p.name; });
+      setPositionsMap(map);
+    }
+  }, [positionsData]);
 
   const { resolvedId, resolvedName, electionStatus } = useMemo(() => {
     const navId = params?.electionId || params?.id;
@@ -144,15 +150,11 @@ const ResultsScreen = () => {
     { skip: !activeCoalition?.id }
   );
 
- const processedData = useMemo(() => {
-    const rawData = (data?.data || []) as ElectionResult[]; 
+  const processedData = useMemo(() => {
+    const rawData = (data?.data || []) as Candidate[]; 
     const coalList = (coalitionsData?.coalitions || []) as any[];
     const allPos = (positionsData?.positions || []) as any[];
-
-    // Filter for School-tier positions only
-    const schoolPositions = allPos.filter((p: any) => 
-        p.tier?.toLowerCase() === 'school' && !p.name?.toLowerCase().includes('executive')
-    );
+    const q = search.toLowerCase().trim();
 
     const enrichedData = rawData.map(candidate => {
       const matchingCoalition = coalList.find((c: any) => c.id === candidate.coalition_id);
@@ -166,55 +168,43 @@ const ResultsScreen = () => {
     const totalVotesInElection = enrichedData.reduce((acc, curr) => acc + Number(curr.votes_count || 0), 0);
     const turnout = (totalVotesInElection / (Number(userCountData?.count) || 1)) * 100;
 
-    // HELPER: Generates data for positions without being affected by UI filters
-    const getChartDataForPositions = (posList: any[]) => {
-      return posList.map(pos => {
-        const candidates = enrichedData
-          .filter(c => c.position_id === pos.id)
-          .sort((a, b) => Number(b.votes_count) - Number(a.votes_count));
+    const sections: { title: string, data: Candidate[] }[] = [];
+    const allPositionCharts: any[] = [];
+
+    allPos.forEach(pos => {
+        // Search logic for Candidate Name OR Position Name
+        const matchesPosition = pos.name.toLowerCase().includes(q);
         
-        const totalPosVotes = candidates.reduce((sum, c) => sum + Number(c.votes_count), 0);
-
-        return {
-          title: pos.name,
-          totalVotes: totalPosVotes,
-          chartData: candidates.map((c, idx) => ({
-            name: c.candidate_name?.split(' ')[0] || "Unknown",
-            votes: Number(c.votes_count),
-            color: [UNIVERSITY_RED, GOLD, '#3b82f6', '#10b981', '#8b5cf6', '#ec4899'][idx % 6],
-            legendFontColor: "#64748b",
-            legendFontSize: 10
-          }))
-        };
-      }).filter(p => p.chartData.length > 0);
-    };
-
-    // 1. For the Live Tally list (Affected by search and chip filters)
-    const positionsToDisplay = selectedPositionId 
-        ? schoolPositions.filter(p => p.id === selectedPositionId)
-        : schoolPositions;
-
-    const sections: { title: string, data: ElectionResult[] }[] = [];
-    positionsToDisplay.forEach(pos => {
         const candidatesForPos = enrichedData
-            .filter(c => c.position_id === pos.id && (c.candidate_name?.toLowerCase().includes(searchQuery.toLowerCase()) || !searchQuery))
+            .filter(c => {
+               const matchesCandidate = (c.candidate_name || "").toLowerCase().includes(q);
+               return c.position_id === pos.id && (matchesCandidate || matchesPosition || q === '');
+            })
             .sort((a, b) => Number(b.votes_count) - Number(a.votes_count));
         
         if (candidatesForPos.length > 0) {
+            const totalPosVotes = candidatesForPos.reduce((s, curr) => s + Number(curr.votes_count), 0);
             sections.push({ 
                 title: pos.name, 
-                data: candidatesForPos.map(c => ({ ...c, total_pos_votes: candidatesForPos.reduce((s, curr) => s + Number(curr.votes_count), 0) })) 
+                data: candidatesForPos.map(c => ({ ...c, total_pos_votes: totalPosVotes })) 
+            });
+
+            allPositionCharts.push({
+                title: pos.name,
+                totalVotes: totalPosVotes,
+                chartData: candidatesForPos.map((c, idx) => ({
+                    name: (c.candidate_name || "Unknown").split(' ')[0],
+                    votes: Number(c.votes_count),
+                    color: [UNIVERSITY_RED, GOLD, '#3b82f6', '#10b981', '#8b5cf6', '#ec4899'][idx % 6],
+                    legendFontColor: "#64748b",
+                    legendFontSize: 10
+                }))
             });
         }
     });
 
-    // 2. For Analytics (ALWAYS shows all schools)
-    const allPositionCharts = getChartDataForPositions(schoolPositions);
-
-    // EXECUTIVE RESULTS CALCULATION
     const executiveResultsList = (executiveResults?.results || []) as any[];
     const totalExecutiveVotes = executiveResultsList.reduce((acc, curr) => acc + Number(curr.voteCount || 0), 0);
-    
     const resultsMap = new Map(executiveResultsList.map((r: any) => [r.coalitionId, Number(r.voteCount || 0)]));
     
     const standings = coalList.map((info) => {
@@ -235,17 +225,11 @@ const ResultsScreen = () => {
       turnoutPercentage: turnout, 
       coalitionStanding: standings,
       coalitionPie: standings.filter(s => s.votes > 0).map(s => ({ name: s.acronym, votes: s.votes, color: s.color, legendFontColor: "#64748b", legendFontSize: 11 })),
-      schoolPositions,
       allPositionCharts, 
       leadingCoalition: standings.length > 0 ? standings[0] : null,
+      hasResults: sections.length > 0
     };
-  }, [data, selectedPositionId, searchQuery, userCountData, coalitionsData, executiveResults, positionsData]);
-
-  useEffect(() => {
-    if (activeTab === 'coalition' && processedData.leadingCoalition) {
-        setActiveCoalition(processedData.leadingCoalition);
-    }
-  }, [activeTab, processedData.leadingCoalition]);
+  }, [data, search, userCountData, coalitionsData, executiveResults, positionsData]);
 
   const handleShareResults = async () => {
     await Share.share({
@@ -272,6 +256,16 @@ const ResultsScreen = () => {
             </TouchableOpacity>
         ))}
     </View>
+  );
+
+  const renderEmptySearch = () => (
+    <Animatable.View animation="fadeIn" style={styles.noResultsContainer}>
+        <MaterialCommunityIcons name="account-search-outline" size={70} color="#CBD5E1" />
+        <Text style={styles.noResultsTitle}>No Match Found</Text>
+        <Text style={styles.noResultsText}>
+            We couldn't find any candidate or position matching "{search}".
+        </Text>
+    </Animatable.View>
   );
 
   const renderGeneralHeader = () => (
@@ -346,23 +340,23 @@ const ResultsScreen = () => {
                 </ScrollView>
             </View>
 
-            <View style={styles.filterSection}>
-                <Text style={styles.sectionTitle}>Filter School Context</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-                    <TouchableOpacity onPress={() => setSelectedPositionId(null)} style={[styles.chip, !selectedPositionId && styles.activeChip]}>
-                        <Text style={[styles.chipText, !selectedPositionId && styles.activeChipText]}>All Schools</Text>
+            <View style={styles.filtersWrapper}>
+              <View style={styles.searchBar}>
+                <Ionicons name="search" size={16} color="#999" />
+                <TextInput 
+                  style={styles.searchBarInput} 
+                  placeholder="Quick search candidates or positions..." 
+                  value={search} 
+                  onChangeText={setSearch} 
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                />
+                {search.length > 0 && (
+                    <TouchableOpacity onPress={() => setSearch("")}>
+                        <Ionicons name="close-circle" size={18} color="#999" />
                     </TouchableOpacity>
-                    {processedData.schoolPositions.map((pos: any) => (
-                        <TouchableOpacity key={pos.id} onPress={() => setSelectedPositionId(pos.id)} style={[styles.chip, selectedPositionId === pos.id && styles.activeChip]}>
-                            <Text style={[styles.chipText, selectedPositionId === pos.id && styles.activeChipText]}>{pos.name}</Text>
-                        </TouchableOpacity>
-                    ))}
-                </ScrollView>
-            </View>
-
-            <View style={styles.searchBar}>
-                <Ionicons name="search-outline" size={16} color="#94A3B8" />
-                <TextInput placeholder="Filter by candidate name..." placeholderTextColor="#94A3B8" style={styles.searchInput} value={searchQuery} onChangeText={setSearchQuery} />
+                )}
+              </View>
             </View>
           </Animatable.View>
         )}
@@ -375,19 +369,14 @@ const ResultsScreen = () => {
 
   const renderCoalitionLeaderTab = () => {
     const leader = processedData.leadingCoalition;
-    if (!leader) return (
-      <View style={styles.emptyContainer}>
-          <ActivityIndicator color={UNIVERSITY_RED} />
-          <Text style={styles.emptyText}>Syncing Ledger...</Text>
-      </View>
-    );
+    if (!leader) return null;
 
     return (
         <View style={styles.leaderTabContainer}>
             <Animatable.View animation="pulseSlow" iterationCount="infinite" style={[styles.bigWinnerCard, { backgroundColor: leader.color }]}>
                 <MaterialCommunityIcons name="shield-star-outline" size={140} color="rgba(255,255,255,0.15)" style={styles.bgIcon} />
                 <View style={styles.winnerBadgeLarge}>
-                    <MaterialCommunityIcons name="crown" size={16} color={AMAKERE_GOLD} style={{marginRight: 8}} />
+                    <MaterialCommunityIcons name="crown" size={16} color={GOLD} style={{marginRight: 8}} />
                     <Text style={styles.winnerBadgeTextLarge}>{leader.name} Coalition Leaders</Text>
                 </View>
                 <Text style={styles.winnerCoalName}>{leader.name}</Text>
@@ -412,7 +401,6 @@ const ResultsScreen = () => {
                     </View>
                     <View style={styles.countBadge}><Text style={styles.slateCount}>{leaderSlateData?.coalition?.candidates?.length || 0}</Text></View>
                 </View>
-
                 {loadingLeaderSlate ? (
                     <ActivityIndicator color={UNIVERSITY_RED} style={{ marginTop: 20 }} />
                 ) : (
@@ -432,7 +420,7 @@ const ResultsScreen = () => {
     );
   };
 
- const renderAnalyticsTab = () => (
+  const renderAnalyticsTab = () => (
       <View style={styles.analyticsContainer}>
           <Text style={styles.sectionTitle}>Executive Coalition Split</Text>
           <View style={styles.chartCard}>
@@ -447,24 +435,11 @@ const ResultsScreen = () => {
                     absolute
                 />
           </View>
-
-          <View style={styles.sectionHeaderContainer}>
-              <View style={styles.sectionHeaderLine} />
-              <Text style={styles.sectionHeaderText}>SCHOOL-LEVEL BREAKDOWN</Text>
-          </View>
-
           {processedData.allPositionCharts.map((posChart, idx) => (
-            <Animatable.View 
-                key={posChart.title} 
-                animation="fadeInUp" 
-                delay={idx * 100} 
-                style={styles.posAnalyticsCard}
-            >
+            <Animatable.View key={posChart.title} animation="fadeInUp" delay={idx * 100} style={styles.posAnalyticsCard}>
                 <View style={styles.schoolHeaderRow}>
                     <Text style={styles.posAnalyticsTitle}>{posChart.title}</Text>
-                    <View style={styles.votesBadge}>
-                        <Text style={styles.votesBadgeText}>{posChart.totalVotes.toLocaleString()} Total</Text>
-                    </View>
+                    <View style={styles.votesBadge}><Text style={styles.votesBadgeText}>{posChart.totalVotes.toLocaleString()} Total</Text></View>
                 </View>
                 <PieChart
                     data={posChart.chartData}
@@ -478,53 +453,45 @@ const ResultsScreen = () => {
                 />
             </Animatable.View>
           ))}
-
-          <View style={styles.metricsGrid}>
-                <View style={[styles.metricItem, { borderLeftColor: UNIVERSITY_RED }]}>
-                    <Text style={styles.metricLabel}>Total Reach</Text>
-                    <Text style={styles.metricValue}>{processedData.totalVotes.toLocaleString()}</Text>
-                </View>
-                <View style={[styles.metricItem, { borderLeftColor: GOLD }]}>
-                    <Text style={styles.metricLabel}>Nodes Reporting</Text>
-                    <Text style={styles.metricValue}>{processedData.allPositionCharts.length}</Text>
-                </View>
-          </View>
-
-          <View style={[styles.blockchainInfo, { marginBottom: 30 }]}>
-             <MaterialCommunityIcons name="security" size={24} color="#fff" />
-             <Text style={styles.blockchainText}>Fetched via Laikipia E-Vote validator network. Data is final and immutable.</Text>
-          </View>
       </View>
   );
 
-  const renderCandidate = ({ item, index }: { item: ElectionResult, index: number }) => {
-    const isWinner = index === 0 && !searchQuery;
+  const renderCandidate = ({ item, index }: { item: Candidate, index: number }) => {
+    const isWinner = index === 0 && search === '';
     const positionTotal = item.total_pos_votes || 1;
     const percentage = (Number(item.votes_count) / positionTotal) * 100;
 
     return (
       <Animatable.View animation="fadeInUp" delay={index * 50} style={[styles.candCard, isWinner && styles.winnerCard]}>
-        <View style={styles.candTop}>
-            <View style={[styles.rankBadge, isWinner && { backgroundColor: '#FEF3C7' }]}>
-                {isWinner ? <MaterialCommunityIcons name="trophy" size={18} color={GOLD} /> : <Text style={styles.rankText}>{index + 1}</Text>}
-            </View>
-            <View style={styles.candInfo}>
-                <Text style={styles.candName} numberOfLines={1}>{item.candidate_name}</Text>
-                <Text style={styles.candPosition}>{item.coalition_name}</Text>
-            </View>
-            <View style={styles.voteBox}>
-                <Text style={[styles.voteCount, isWinner && { color: GOLD }]}>{Number(item.votes_count).toLocaleString()}</Text>
-                <Text style={styles.votePercent}>{percentage.toFixed(1)}%</Text>
-            </View>
-        </View>
-        <View style={styles.progressTrack}>
-            <Animatable.View 
-                animation="stretchX" 
-                duration={1200} 
-                key={percentage} 
-                style={[styles.progressFillCand, { width: `${percentage}%`, backgroundColor: isWinner ? GOLD : UNIVERSITY_RED }]} 
-            />
-        </View>
+        <TouchableOpacity 
+          onPress={() => {
+              setSelectedCandidate(item);
+              setModalVisible(true);
+          }}
+          activeOpacity={0.7}
+        >
+          <View style={styles.candTop}>
+              <View style={[styles.rankBadge, isWinner && { backgroundColor: '#FEF3C7' }]}>
+                  {isWinner ? <MaterialCommunityIcons name="trophy" size={18} color={GOLD} /> : <Text style={styles.rankText}>{index + 1}</Text>}
+              </View>
+              <View style={styles.candInfo}>
+                  <Text style={styles.candName} numberOfLines={1}>{item.candidate_name}</Text>
+                  <Text style={styles.candPosition}>{item.coalition_name}</Text>
+              </View>
+              <View style={styles.voteBox}>
+                  <Text style={[styles.voteCount, isWinner && { color: GOLD }]}>{Number(item.votes_count).toLocaleString()}</Text>
+                  <Text style={styles.votePercent}>{percentage.toFixed(1)}%</Text>
+              </View>
+          </View>
+          <View style={styles.progressTrack}>
+              <Animatable.View 
+                  animation="stretchX" 
+                  duration={1200} 
+                  key={percentage} 
+                  style={[styles.progressFillCand, { width: `${percentage}%`, backgroundColor: isWinner ? GOLD : UNIVERSITY_RED }]} 
+              />
+          </View>
+        </TouchableOpacity>
       </Animatable.View>
     );
   };
@@ -532,7 +499,7 @@ const ResultsScreen = () => {
   if (loadingElections || isLoading || loadingPositions) {
     return (
         <SafeAreaView style={styles.safe}>
-            <View style={styles.container}>
+            <View style={{ padding: 20 }}>
                 <View style={[styles.skeletonCard, { height: 160, borderRadius: 24, marginBottom: 30 }]} />
                 {[1, 2, 3, 4, 5, 6].map(i => <SkeletonCard key={i} />)}
             </View>
@@ -543,10 +510,10 @@ const ResultsScreen = () => {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <StatusBar style="dark" />
-      
       <SectionList
         sections={activeTab === 'main' ? processedData.sections : []}
         ListHeaderComponent={renderGeneralHeader}
+        ListEmptyComponent={search !== '' ? renderEmptySearch : null}
         keyExtractor={(item) => item.candidate_id}
         renderItem={renderCandidate}
         renderSectionHeader={({ section: { title } }) => (
@@ -560,12 +527,39 @@ const ResultsScreen = () => {
         refreshControl={<RefreshControl refreshing={isFetching} onRefresh={refetch} tintColor={UNIVERSITY_RED} />}
       />
 
+      {/* DETAILED CANDIDATE MODAL */}
+      <Modal visible={modalVisible} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+              <View style={styles.modalContentSmall}>
+                  <MaterialCommunityIcons name="account-details" size={50} color={UNIVERSITY_RED} />
+                  <Text style={styles.modalTitleSmall}>{selectedCandidate?.candidate_name}</Text>
+                  <Text style={styles.modalSubtitleSmall}>{selectedCandidate?.coalition_name}</Text>
+                  <View style={styles.modalStatsRow}>
+                      <View style={styles.modalStatItem}>
+                        <Text style={styles.modalStatVal}>{Number(selectedCandidate?.votes_count).toLocaleString()}</Text>
+                        <Text style={styles.modalStatLbl}>VOTES</Text>
+                      </View>
+                      <View style={styles.modalStatItem}>
+                        <Text style={styles.modalStatVal}>
+                          {((Number(selectedCandidate?.votes_count) / (selectedCandidate?.total_pos_votes || 1)) * 100).toFixed(1)}%
+                        </Text>
+                        <Text style={styles.modalStatLbl}>SHARE</Text>
+                      </View>
+                  </View>
+                  <TouchableOpacity style={styles.closeBtn} onPress={() => setModalVisible(false)}>
+                      <Text style={styles.closeBtnText}>DISMISS</Text>
+                  </TouchableOpacity>
+              </View>
+          </View>
+      </Modal>
+
+      {/* COALITION SLATE MODAL */}
       <Modal visible={isSlateModalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <Animatable.View animation="slideInUp" duration={450} style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <View>
-                <Text style={styles.modalSubtitle}>DETAILED PLATFORM SLATE</Text>
+                <Text style={styles.modalSubtitle}>PLATFORM SLATE</Text>
                 <Text style={[styles.modalTitle, { color: activeCoalition?.color }]}>{activeCoalition?.name}</Text>
               </View>
               <TouchableOpacity onPress={() => setIsSlateModalVisible(false)}><Ionicons name="close-circle" size={32} color="#111" /></TouchableOpacity>
@@ -593,114 +587,112 @@ const ResultsScreen = () => {
 };
 
 const styles = StyleSheet.create({
-    safe: { flex: 1, backgroundColor: '#f8fafc' },
-    container: { padding: 20 },
-    headerWrapper: { backgroundColor: '#fff' },
-    topHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 15 },
-    headerLeft: { flexDirection: 'row', alignItems: 'center' },
-    logo: { width: 40, height: 40, borderRadius: 20, marginRight: 12 },
-    userNameText: { fontSize: 16, fontWeight: '700', color: '#1e293b' },
-    greetingText: { fontSize: 12, color: '#64748b' },
-    shareBtn: { padding: 8, backgroundColor: '#f1f5f9', borderRadius: 10 },
-    tabContainer: { flexDirection: 'row', backgroundColor: '#f1f5f9', padding: 4, borderRadius: 12, marginBottom: 15 },
-    tabButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 10 },
-    activeTabButton: { backgroundColor: '#fff', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
-    tabText: { fontSize: 12, fontWeight: '600', color: '#94a3b8', marginLeft: 6 },
-    activeTabText: { color: UNIVERSITY_RED },
-    electionInfoCard: { backgroundColor: '#1e293b', borderRadius: 24, padding: 20, marginBottom: 20 },
-    cardHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-    electionTitle: { fontSize: 18, fontWeight: '800', color: '#fff', flex: 1 },
-    liveIndicatorRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-    pulseDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: UNIVERSITY_RED, marginRight: 8 },
-    liveText: { fontSize: 10, fontWeight: '800', color: UNIVERSITY_RED, letterSpacing: 1 },
-    participationTracker: { marginTop: 5 },
-    trackerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 8 },
-    trackerLabel: { color: '#94a3b8', fontSize: 12 },
-    trackerValue: { color: '#fff', fontSize: 20, fontWeight: '800' },
-    progressBackground: { height: 6, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 3, overflow: 'hidden', marginBottom: 8 },
-    progressFill: { height: '100%', backgroundColor: EMERALD, borderRadius: 3 },
-    totalVotesText: { color: '#64748b', fontSize: 11 },
-    coalitionSection: { marginBottom: 25 },
-    sectionHeaderCompact: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-    sectionTitle: { fontSize: 16, fontWeight: '800', color: '#1e293b' },
-    helperText: { fontSize: 12, color: '#64748b' },
-    coalitionScroll: { paddingBottom: 5 },
-    detailedCoalCard: { width: 140, padding: 15, borderRadius: 20, marginRight: 12 },
-    coalCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-    coalAcronym: { color: '#fff', fontWeight: '900', fontSize: 16 },
-    coalVoteVal: { color: '#fff', fontSize: 20, fontWeight: '800' },
-    coalVoteLbl: { color: 'rgba(255,255,255,0.7)', fontSize: 9, fontWeight: '700', marginTop: 2 },
-    filterSection: { marginBottom: 20 },
-    chipScroll: { paddingVertical: 5 },
-    chip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', marginRight: 8, marginBottom: 5 },
-    activeChip: { backgroundColor: UNIVERSITY_RED, borderColor: UNIVERSITY_RED },
-    chipText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
-    activeChipText: { color: '#fff' },
-    searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f5f9', borderRadius: 15, paddingHorizontal: 15, height: 45, marginBottom: 10 },
-    searchInput: { flex: 1, marginLeft: 10, fontSize: 14, color: '#1e293b' },
-    sectionHeaderContainer: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, marginVertical: 15 },
-    sectionHeaderLine: { width: 4, height: 16, backgroundColor: UNIVERSITY_RED, borderRadius: 2, marginRight: 10 },
-    sectionHeaderText: { fontSize: 14, fontWeight: '800', color: '#64748b', letterSpacing: 1 },
-    candCard: { backgroundColor: '#fff', marginHorizontal: 20, marginBottom: 12, borderRadius: 16, padding: 15, borderWidth: 1, borderColor: '#f1f5f9' },
-    winnerCard: { borderColor: GOLD, backgroundColor: '#fff' },
-    candTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-    rankBadge: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-    rankText: { fontSize: 14, fontWeight: '800', color: '#64748b' },
-    candInfo: { flex: 1 },
-    candName: { fontSize: 15, fontWeight: '700', color: '#1e293b', marginBottom: 2 },
-    candPosition: { fontSize: 12, color: '#64748b' },
-    voteBox: { alignItems: 'flex-end' },
-    voteCount: { fontSize: 16, fontWeight: '800', color: '#1e293b' },
-    votePercent: { fontSize: 11, color: '#64748b', fontWeight: '600' },
-    progressTrack: { height: 4, backgroundColor: '#f1f5f9', borderRadius: 2, overflow: 'hidden' },
-    progressFillCand: { height: '100%', borderRadius: 2 },
-    skeletonCard: { flexDirection: 'row', alignItems: 'center', padding: 15, backgroundColor: '#fff', borderRadius: 16, marginBottom: 12, marginHorizontal: 20 },
-    skeletonCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f1f5f9' },
-    skeletonLineShort: { width: '60%', height: 12, backgroundColor: '#f1f5f9', borderRadius: 6 },
-    emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
-    emptyText: { marginTop: 15, fontSize: 14, color: '#64748b', fontWeight: '600' },
-    leaderTabContainer: { paddingVertical: 10 },
-    bigWinnerCard: { borderRadius: 30, padding: 25, height: 220, justifyContent: 'center', overflow: 'hidden', marginBottom: 25 },
-    bgIcon: { position: 'absolute', right: -20, bottom: -20 },
-    winnerBadgeLarge: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, marginBottom: 15 },
-    winnerBadgeTextLarge: { fontSize: 10, fontWeight: '800', color: AMAKERE_GOLD, letterSpacing: 0.5 },
-    winnerCoalName: { fontSize: 32, fontWeight: '900', color: '#fff', marginBottom: 20 },
-    winnerStatsRow: { flexDirection: 'row', alignItems: 'center' },
-    winnerStatVal: { color: '#fff', fontSize: 24, fontWeight: '800' },
-    winnerStatLbl: { color: 'rgba(255,255,255,0.6)', fontSize: 10, fontWeight: '700', marginTop: 2 },
-    statDivider: { width: 1, height: 30, backgroundColor: 'rgba(255,255,255,0.3)', marginHorizontal: 20 },
-    slateContainer: { backgroundColor: '#fff', borderRadius: 24, padding: 20 },
-    slateHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-    slateTitle: { fontSize: 18, fontWeight: '800', color: '#1e293b' },
-    slateSubtitle: { fontSize: 12, color: '#64748b', marginTop: 2 },
-    countBadge: { backgroundColor: '#f1f5f9', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
-    slateCount: { fontSize: 14, fontWeight: '800', color: UNIVERSITY_RED },
-    slateItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-    slateDot: { width: 6, height: 6, borderRadius: 3, marginRight: 15 },
-    slateInfo: { flex: 1 },
-    slateNameText: { fontSize: 14, fontWeight: '700', color: '#1e293b' },
-    slatePosText: { fontSize: 11, color: '#64748b', marginTop: 2 },
-    analyticsContainer: { paddingBottom: 20 },
-    chartCard: { backgroundColor: '#fff', borderRadius: 24, padding: 20, alignItems: 'center', marginBottom: 25, borderWidth: 1, borderColor: '#f1f5f9' },
-    posAnalyticsCard: { backgroundColor: '#fff', borderRadius: 24, padding: 20, marginBottom: 15, borderWidth: 1, borderColor: '#f1f5f9' },
-    schoolHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-    posAnalyticsTitle: { fontSize: 15, fontWeight: '800', color: '#1e293b' },
-    votesBadge: { backgroundColor: '#f1f5f9', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
-    votesBadgeText: { fontSize: 10, fontWeight: '800', color: UNIVERSITY_RED },
-    metricsGrid: { flexDirection: 'row', gap: 12, marginBottom: 25 },
-    metricItem: { flex: 1, backgroundColor: '#fff', padding: 15, borderRadius: 20, borderLeftWidth: 4 },
-    metricLabel: { fontSize: 11, color: '#64748b', marginBottom: 5, fontWeight: '600' },
-    metricValue: { fontSize: 18, fontWeight: '800', color: '#1e293b' },
-    blockchainInfo: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1e293b', padding: 15, borderRadius: 15 },
-    blockchainText: { flex: 1, color: 'rgba(255,255,255,0.7)', fontSize: 11, marginLeft: 12, lineHeight: 16 },
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.8)', justifyContent: 'flex-end' },
-    modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 30, borderTopRightRadius: 30, padding: 25, height: height * 0.7 },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 25 },
-    modalSubtitle: { fontSize: 10, fontWeight: '800', color: '#94a3b8', letterSpacing: 1 },
-    modalTitle: { fontSize: 24, fontWeight: '900', marginTop: 5 },
-    slateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-    slateMain: { flex: 1 },
-    slateName: { fontSize: 16, fontWeight: '700', color: '#1e293b' }
+  safe: { flex: 1, backgroundColor: '#f8fafc' },
+  headerWrapper: { backgroundColor: '#f8fafc', paddingBottom: 10 },
+  topHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 15 },
+  headerLeft: { flexDirection: 'row', alignItems: 'center' },
+  logo: { width: 45, height: 45, borderRadius: 12, marginRight: 12 },
+  userNameText: { fontSize: 18, fontWeight: '800', color: '#1E293B' },
+  greetingText: { fontSize: 12, color: '#64748B', fontWeight: '600' },
+  shareBtn: { padding: 10, backgroundColor: '#fff', borderRadius: 12, elevation: 1 },
+  tabContainer: { flexDirection: 'row', backgroundColor: '#F1F5F9', borderRadius: 16, padding: 4, marginBottom: 20 },
+  tabButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 12 },
+  activeTabButton: { backgroundColor: '#fff', elevation: 2 },
+  tabText: { marginLeft: 6, fontSize: 12, fontWeight: '700', color: '#94A3B8' },
+  activeTabText: { color: UNIVERSITY_RED },
+  electionInfoCard: { backgroundColor: '#fff', padding: 20, borderRadius: 24, elevation: 2, marginBottom: 15 },
+  cardHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  electionTitle: { fontSize: 18, fontWeight: '900', color: '#1E293B', flex: 1 },
+  liveIndicatorRow: { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
+  pulseDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: UNIVERSITY_RED, marginRight: 6 },
+  liveText: { fontSize: 10, fontWeight: '800', color: UNIVERSITY_RED, letterSpacing: 0.5 },
+  participationTracker: { marginTop: 15 },
+  trackerHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  trackerLabel: { fontSize: 12, fontWeight: '700', color: '#64748B' },
+  trackerValue: { fontSize: 14, fontWeight: '900', color: UNIVERSITY_RED },
+  progressBackground: { height: 8, backgroundColor: '#F1F5F9', borderRadius: 4, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: UNIVERSITY_RED },
+  totalVotesText: { fontSize: 10, color: '#94A3B8', marginTop: 8, textAlign: 'right', fontWeight: '600' },
+  coalitionSection: { marginBottom: 20 },
+  sectionHeaderCompact: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  sectionTitle: { fontSize: 15, fontWeight: '900', color: '#1E293B' },
+  helperText: { fontSize: 11, color: '#94A3B8', fontWeight: '700' },
+  coalitionScroll: { paddingLeft: 0 },
+  detailedCoalCard: { width: 140, padding: 15, borderRadius: 20, marginRight: 12, elevation: 3 },
+  coalCardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
+  coalAcronym: { fontSize: 16, fontWeight: '900', color: '#fff' },
+  coalVoteVal: { fontSize: 18, fontWeight: '900', color: '#fff' },
+  coalVoteLbl: { fontSize: 8, fontWeight: '800', color: 'rgba(255,255,255,0.8)', marginTop: 2 },
+  filtersWrapper: { marginBottom: 10 },
+  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 15, height: 50, borderRadius: 15, borderWidth: 1, borderColor: '#E2E8F0' },
+  searchBarInput: { flex: 1, marginLeft: 10, fontSize: 14, color: '#1E293B', fontWeight: '600' },
+  sectionHeaderContainer: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 15 },
+  sectionHeaderLine: { width: 4, height: 18, backgroundColor: UNIVERSITY_RED, borderRadius: 2, marginRight: 10 },
+  sectionHeaderText: { fontSize: 13, fontWeight: '900', color: '#64748B', letterSpacing: 1 },
+  candCard: { backgroundColor: '#fff', marginHorizontal: 20, padding: 18, borderRadius: 22, marginBottom: 12, elevation: 1 },
+  winnerCard: { borderWidth: 1.5, borderColor: '#FEF3C7', backgroundColor: '#FFFDF5' },
+  candTop: { flexDirection: 'row', alignItems: 'center' },
+  rankBadge: { width: 34, height: 34, borderRadius: 10, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  rankText: { fontSize: 14, fontWeight: '800', color: '#64748B' },
+  candInfo: { flex: 1 },
+  candName: { fontSize: 16, fontWeight: '800', color: '#1E293B' },
+  candPosition: { fontSize: 12, color: '#64748B', fontWeight: '600', marginTop: 2 },
+  voteBox: { alignItems: 'flex-end' },
+  voteCount: { fontSize: 18, fontWeight: '900', color: '#1E293B' },
+  votePercent: { fontSize: 12, fontWeight: '700', color: EMERALD },
+  progressTrack: { height: 4, backgroundColor: '#F1F5F9', borderRadius: 2, marginTop: 12, overflow: 'hidden' },
+  progressFillCand: { height: '100%', borderRadius: 2 },
+  noResultsContainer: { padding: 60, alignItems: 'center' },
+  noResultsTitle: { fontSize: 18, fontWeight: '800', color: '#475569', marginTop: 15 },
+  noResultsText: { fontSize: 13, color: '#94A3B8', textAlign: 'center', marginTop: 8 },
+  leaderTabContainer: { paddingVertical: 10 },
+  bigWinnerCard: { padding: 30, borderRadius: 32, overflow: 'hidden', elevation: 8, marginBottom: 25 },
+  bgIcon: { position: 'absolute', right: -20, bottom: -20 },
+  winnerBadgeLarge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, alignSelf: 'flex-start', marginBottom: 15 },
+  winnerBadgeTextLarge: { color: '#fff', fontSize: 11, fontWeight: '900' },
+  winnerCoalName: { fontSize: 32, fontWeight: '900', color: '#fff', marginBottom: 20 },
+  winnerStatsRow: { flexDirection: 'row', alignItems: 'center' },
+  winnerStatVal: { fontSize: 24, fontWeight: '900', color: '#fff' },
+  winnerStatLbl: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.8)' },
+  statDivider: { width: 1, height: 30, backgroundColor: 'rgba(255,255,255,0.3)'},
+  slateContainer: { backgroundColor: '#fff', padding: 25, borderRadius: 28, elevation: 1 },
+  slateHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  slateTitle: { fontSize: 18, fontWeight: '900', color: '#1E293B' },
+  slateSubtitle: { fontSize: 12, color: '#64748B', fontWeight: '600' },
+  countBadge: { backgroundColor: '#F1F5F9', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  slateCount: { fontSize: 12, fontWeight: '900', color: '#1E293B' },
+  slateItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  slateDot: { width: 8, height: 8, borderRadius: 4, marginRight: 15 },
+  slateInfo: { flex: 1 },
+  slateNameText: { fontSize: 15, fontWeight: '800', color: '#1E293B' },
+  slatePosText: { fontSize: 11, color: '#64748B', fontWeight: '700', marginTop: 2 },
+  analyticsContainer: { paddingBottom: 20 },
+  chartCard: { backgroundColor: '#fff', padding: 20, borderRadius: 24, elevation: 1, marginBottom: 20, alignItems: 'center' },
+  posAnalyticsCard: { backgroundColor: '#fff', padding: 20, borderRadius: 24, elevation: 1, marginBottom: 15, alignItems: 'center' },
+  schoolHeaderRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+  posAnalyticsTitle: { fontSize: 15, fontWeight: '900', color: '#1E293B' },
+  votesBadge: { backgroundColor: '#F1F5F9', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  votesBadgeText: { fontSize: 10, fontWeight: '800', color: '#64748B' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.7)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { backgroundColor: '#fff', width: '100%', height: '80%', borderTopLeftRadius: 35, borderTopRightRadius: 35, padding: 30, marginTop: 'auto' },
+  modalContentSmall: { width: '85%', backgroundColor: '#fff', padding: 30, borderRadius: 32, alignItems: 'center' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 25 },
+  modalTitle: { fontSize: 24, fontWeight: '900', marginTop: 5 },
+  modalSubtitle: { fontSize: 11, fontWeight: '800', color: '#64748B', letterSpacing: 1 },
+  modalTitleSmall: { fontSize: 22, fontWeight: '900', color: '#1E293B', marginTop: 15, textAlign: 'center' },
+  modalSubtitleSmall: { fontSize: 14, color: '#64748B', fontWeight: '700', marginTop: 4 },
+  modalStatsRow: { flexDirection: 'row', marginVertical: 25, width: '100%', justifyContent: 'space-around' },
+  modalStatItem: { alignItems: 'center' },
+  modalStatVal: { fontSize: 24, fontWeight: '900', color: UNIVERSITY_RED },
+  modalStatLbl: { fontSize: 10, fontWeight: '800', color: '#94A3B8', marginTop: 4 },
+  closeBtn: { backgroundColor: '#F1F5F9', paddingVertical: 14, paddingHorizontal: 40, borderRadius: 16, width: '100%', alignItems: 'center' },
+  closeBtnText: { color: '#475569', fontWeight: '900', fontSize: 14 },
+  slateRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8FAFC', padding: 18, borderRadius: 20, marginBottom: 12 },
+  slateMain: { flex: 1 },
+  slateName: { fontSize: 16, fontWeight: '800', color: '#1E293B' },
+  skeletonCard: { flexDirection: 'row', alignItems: 'center', padding: 20, backgroundColor: '#fff', borderRadius: 20, marginBottom: 15 },
+  skeletonCircle: { width: 45, height: 45, borderRadius: 15, backgroundColor: '#F1F5F9' },
+  skeletonLineShort: { height: 12, width: '60%', backgroundColor: '#F1F5F9', borderRadius: 6 }
 });
 
 export default ResultsScreen;

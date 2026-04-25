@@ -12,7 +12,9 @@ import {
   Modal,
   Dimensions,
   TextInput,
-  Animated
+  Animated,
+  KeyboardAvoidingView,
+  Platform
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -101,6 +103,11 @@ export default function VoteScreen() {
   const [reviewModalVisible, setReviewModalVisible] = useState(false);
   const [slateConfirmVisible, setSlateConfirmVisible] = useState(false);
   const [activeSlate, setActiveSlate] = useState<{name: string, candidates: any[], id: string} | null>(null);
+
+  // Secret Code Implementation
+  const [secretCodeModalVisible, setSecretCodeModalVisible] = useState(false);
+  const [secretCode, setSecretCode] = useState("");
+  const [pendingAction, setPendingAction] = useState<"standard" | "delegate" | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [toastVisible, setToastVisible] = useState(false);
@@ -271,27 +278,12 @@ export default function VoteScreen() {
 
   const handleFinalSlateVote = async () => {
       if (!activeSlate || !currentUserDelegateObject) return;
-
-      const auth = await LocalAuthentication.authenticateAsync({ promptMessage: `Confirm Slate Vote for ${activeSlate.name}` });
-      if (!auth.success) return;
-
-      setSlateConfirmVisible(false);
-      try {
-          setTxProgress(`Broadcasting Slate...`);
-          await castDelegateVote({
-              delegate_id: currentUserDelegateObject.delegate_id,
-              election_id: activeElection!.id,
-              coalition_id: activeSlate.id,
-              position_id: activeSlate.candidates[0].position_id 
-          }).unwrap();
-          showSuccessToast(`Slate Vote Recorded!`);
-          refetchDelegateVote();
-      } catch (error: any) {
-          Alert.alert("Blockchain Error", error.data?.error || "Transaction failed. A vote for this coalition may already exist.");
-      } finally { setTxProgress(""); }
+      // Trigger Secret Code instead of just BioAuth
+      setPendingAction("delegate");
+      setSecretCodeModalVisible(true);
   };
 
-  const processStandardVotes = async (positionsList: string[]) => {
+  const processStandardVotes = async (positionsList: string[], code: string) => {
     for (const posName of positionsList) {
       const posId = Object.keys(positionsMap).find(k => positionsMap[k] === posName);
       const candId = selectedVotes[posName];
@@ -300,23 +292,56 @@ export default function VoteScreen() {
         await castStandardVote({ 
           candidate_id: candId, 
           position_id: posId, 
-          election_id: activeElection!.id 
+          election_id: activeElection!.id,
+          secret_code: code // Passed to standard vote
         }).unwrap();
       }
     }
   };
 
   const handleVoteSubmission = async () => {
-    const auth = await LocalAuthentication.authenticateAsync({ promptMessage: 'Authorize Ballot Submission' });
+    setPendingAction("standard");
+    setSecretCodeModalVisible(true);
+  };
+
+  // The actual execution function after secret code is entered
+  const executeSecureAction = async () => {
+    if (!secretCode || secretCode.length < 4) {
+      Alert.alert("Error", "Please enter a valid secret code.");
+      return;
+    }
+
+    const auth = await LocalAuthentication.authenticateAsync({ promptMessage: 'Confirm Identity' });
     if (!auth.success) return;
+
+    setSecretCodeModalVisible(false);
     setReviewModalVisible(false);
+    setSlateConfirmVisible(false);
+
     try {
-      await processStandardVotes(pendingPositions);
-      showSuccessToast("All Votes Secured Successfully!");
-      refetchMyVotes();
+      if (pendingAction === "standard") {
+        await processStandardVotes(pendingPositions, secretCode);
+        showSuccessToast("All Votes Secured Successfully!");
+        refetchMyVotes();
+      } else if (pendingAction === "delegate" && activeSlate && currentUserDelegateObject) {
+        setTxProgress(`Broadcasting Slate...`);
+        await castDelegateVote({
+            delegate_id: currentUserDelegateObject.delegate_id,
+            election_id: activeElection!.id,
+            coalition_id: activeSlate.id,
+            position_id: activeSlate.candidates[0].position_id,
+            secret_code: secretCode // Passed to delegate vote
+        }).unwrap();
+        showSuccessToast(`Slate Vote Recorded!`);
+        refetchDelegateVote();
+      }
     } catch (error: any) {
-      Alert.alert("Blockchain Error", error.data?.error || "Transaction failed.");
-    } finally { setTxProgress(""); }
+        Alert.alert("Blockchain Error", error.data?.error || "Transaction failed. Verify your secret code and balance.");
+    } finally { 
+      setTxProgress("");
+      setSecretCode("");
+      setPendingAction(null);
+    }
   };
 
   const filteredGroupedCandidates = useMemo(() => {
@@ -550,6 +575,43 @@ export default function VoteScreen() {
         <View style={{ height: 40 }} />
       </ScrollView>
 
+      {/* Secret Code Verification Modal */}
+      <Modal visible={secretCodeModalVisible} animationType="fade" transparent={true}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+            <Animatable.View animation="bounceIn" duration={400} style={styles.codeBox}>
+                <View style={styles.codeHeader}>
+                    <MaterialCommunityIcons name="shield-key" size={32} color={LAIKIPIA_RED} />
+                    <Text style={styles.codeHeading}>Blockchain Signature</Text>
+                    <Text style={styles.codeSub}>Enter your unique secret code to anchor this vote to the Sepolia Ledger.</Text>
+                </View>
+                
+                <TextInput
+                  style={styles.codeField}
+                  placeholder="Secret Code (e.g. VOTE-2026)"
+                  placeholderTextColor="#9CA3AF"
+                  secureTextEntry={true}
+                  value={secretCode}
+                  onChangeText={setSecretCode}
+                  autoCapitalize="none"
+                  autoFocus={true}
+                />
+
+                <View style={styles.confirmActions}>
+                    <TouchableOpacity style={styles.cancelBtn} onPress={() => { setSecretCodeModalVisible(false); setSecretCode(""); }}>
+                        <Text style={styles.cancelBtnText}>CANCEL</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[styles.confirmBtn, {backgroundColor: LAIKIPIA_RED}, (!secretCode || isSubmitting) && styles.disabledButton]} 
+                      onPress={executeSecureAction}
+                      disabled={!secretCode || isSubmitting}
+                    >
+                        <Text style={[styles.confirmBtnText, {color: WHITE}]}>{isSubmitting ? "SIGNING..." : "SIGN & ANCHOR"}</Text>
+                    </TouchableOpacity>
+                </View>
+            </Animatable.View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {/* Confirmation Modal for Delegates */}
       <Modal visible={slateConfirmVisible} animationType="fade" transparent={true}>
           <View style={styles.modalOverlay}>
@@ -718,5 +780,12 @@ const styles = StyleSheet.create({
   toastContent: { flexDirection: "row", alignItems: "center", backgroundColor: WHITE, padding: 16, borderRadius: 16, elevation: 10, borderLeftWidth: 4, borderLeftColor: LAIKIPIA_RED },
   toastText: { marginLeft: 12, fontSize: 14, fontWeight: "800", color: "#111827" },
   emptyState: { padding: 60, alignItems: "center" },
-  emptyText: { marginTop: 15, color: "#9CA3AF", fontWeight: "700" }
+  emptyText: { marginTop: 15, color: "#9CA3AF", fontWeight: "700" },
+
+  // New Secret Code Modal Styles
+  codeBox: { backgroundColor: WHITE, borderRadius: 28, padding: 25, width: '100%', shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 5 },
+  codeHeader: { alignItems: "center", marginBottom: 20 },
+  codeHeading: { fontSize: 20, fontWeight: "900", color: "#111827", marginTop: 10 },
+  codeSub: { fontSize: 13, color: "#6B7280", textAlign: "center", marginTop: 8, lineHeight: 20 },
+  codeField: { backgroundColor: "#F3F4F6", height: 55, borderRadius: 14, paddingHorizontal: 20, fontSize: 16, fontWeight: "700", color: "#111827", marginVertical: 20, borderWidth: 1, borderColor: "#E5E7EB", textAlign: "center" }
 });

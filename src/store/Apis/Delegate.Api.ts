@@ -10,11 +10,15 @@ export interface Delegate {
   coalition_id: string | null;
 }
 
+/**
+ * Updated to include secret_code for Phase 2 Blockchain signing
+ */
 export interface DelegateVoteRequest {
-  delegate_id: string; // This should be the UUID from the roster
+  delegate_id: string;
   election_id: string;
   coalition_id: string;
   position_id: string;
+  secret_code: string; // <--- Included for alphanumeric security
 }
 
 export interface DelegateVoteResponse {
@@ -30,7 +34,7 @@ export interface DelegateVoteResponse {
   };
 }
 
-// New Type for checking vote status
+// Type for checking personal vote status
 export interface MyDelegateVoteResponse {
   voted: boolean;
   message?: string;
@@ -62,13 +66,14 @@ export interface ExecutiveResultsResponse {
 export const delegatesApi = createApi({
   reducerPath: "delegatesApi",
   baseQuery: fetchBaseQuery({
-    baseUrl: "https://online-voting-system-oq4p.onrender.com/api/delegates",
+    baseUrl: "https://laikipiavotingsystem-f3aabefwhrendaae.southafricanorth-01.azurewebsites.net/api/delegates",
     prepareHeaders: async (headers) => {
       const token = await AsyncStorage.getItem("token");
       if (token) {
         headers.set("Authorization", `Bearer ${token}`);
       }
       headers.set("Content-Type", "application/json");
+      headers.set("Accept", "application/json");
       return headers;
     },
   }),
@@ -94,7 +99,6 @@ export const delegatesApi = createApi({
     }),
 
     // -------------------- 3. CHECK MY VOTE STATUS --------------------
-    // New endpoint to verify if the current user has already voted
     getMyDelegateVote: builder.query<MyDelegateVoteResponse, string>({
       query: (electionId) => `my-vote/${electionId}`,
       providesTags: ["MyVote"],
@@ -103,11 +107,11 @@ export const delegatesApi = createApi({
     // -------------------- 4. CAST DELEGATE VOTE (Phase 2) --------------------
     castDelegateVote: builder.mutation<DelegateVoteResponse, DelegateVoteRequest>({
       query: (body) => ({
-        url: "vote",
+        url: "vote", // Matches POST {{baseUrl}}/delegates/vote
         method: "POST",
         body,
       }),
-      // Invalidate results and MyVote so the UI updates to show the Tx Hash
+      // Invalidates tags to refresh the UI with the new transaction hash
       invalidatesTags: ["Results", "MyVote"],
     }),
 
@@ -123,7 +127,7 @@ export const delegatesApi = createApi({
 export const {
   usePromoteWinnersMutation,
   useGetDelegateRosterQuery,
-  useGetMyDelegateVoteQuery, // Exported hook
+  useGetMyDelegateVoteQuery,
   useCastDelegateVoteMutation,
   useGetExecutiveResultsQuery,
 } = delegatesApi;

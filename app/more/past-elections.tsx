@@ -23,7 +23,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 
 // API Imports
-import { useGetAllElectionsQuery, useGetElectionByIdQuery } from "@/src/store/Apis/Election.Api";
+import { useGetAllElectionsQuery, useGetElectionResultsQuery } from "@/src/store/Apis/Election.Api";
 
 // Charts
 import { PieChart } from "react-native-svg-charts";
@@ -40,21 +40,25 @@ export default function PastElectionScreen() {
   const toastY = useRef(new Animated.Value(-100)).current;
   const toastOpacity = useRef(new Animated.Value(0)).current;
 
-  // 1. Fetch all elections
-  const { data: allElections, isLoading: loadingAll, refetch, isFetching } = useGetAllElectionsQuery();
+  // 1. Fetch all elections for the list
+  const { data: allElections, isLoading: loadingAll, refetch } = useGetAllElectionsQuery();
 
-  // 2. Fetch details for the selected modal
-  const { data: electionDetails, isLoading: loadingDetails } = useGetElectionByIdQuery(
+  // 2. Fetch Detailed Results (includes positions, candidates, and votes)
+  const { data: resultsData, isLoading: loadingDetails, isError } = useGetElectionResultsQuery(
     selectedElectionId ?? "",
     { skip: !selectedElectionId }
   );
 
+  // Safely extract the results object from the response
+  const electionDetails = useMemo(() => resultsData?.results, [resultsData]);
+
+  // Filter for past or completed elections
   const pastElections = useMemo(() => {
     if (!allElections?.elections) return [];
     const now = new Date();
     return allElections.elections.filter((election: any) => {
       const endDate = new Date(election.end_date);
-      return endDate < now; 
+      return endDate < now || election.status === 'completed' || election.status === 'finished'; 
     });
   }, [allElections]);
 
@@ -93,6 +97,18 @@ export default function PastElectionScreen() {
 
   const closeModal = () => setSelectedElectionId(null);
 
+  // Logic to calculate winner based on the 'votes' array length per candidate
+  const getWinnerInfo = (position: any) => {
+    if (!position.candidates || position.candidates.length === 0) return { name: "No Candidates", votes: 0 };
+    
+    const candidatesWithCounts = position.candidates.map((c: any) => ({
+      name: c.name || "Unknown",
+      votes: c.votes?.length || 0
+    })).sort((a: any, b: any) => b.votes - a.votes);
+    
+    return candidatesWithCounts[0];
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
@@ -113,7 +129,7 @@ export default function PastElectionScreen() {
           </TouchableOpacity>
           <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.logo} />
           <View>
-            <Text style={styles.headerTitle}>Official Archives</Text>
+            <Text style={styles.headerTitle}>Past Elections</Text>
             <Text style={styles.headerSub}>CONCLUDED RECORDS</Text>
           </View>
         </View>
@@ -127,7 +143,6 @@ export default function PastElectionScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[UNIVERSITY_RED]} />}
       >
         <View style={styles.infoBox}>
-            {/* FIXED ICON NAME HERE */}
             <MaterialCommunityIcons name="shield-check-outline" size={20} color={DARK_NAVY} />
             <Text style={styles.subtitle}>
             Historical results are cryptographically signed and stored for transparency.
@@ -185,45 +200,67 @@ export default function PastElectionScreen() {
         </View>
       </ScrollView>
 
-      {/* Modal */}
+      {/* Results Modal */}
       <Modal visible={!!selectedElectionId} transparent animationType="slide" onRequestClose={closeModal}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalTitle}>{electionDetails?.election?.name || "Loading..."}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle} numberOfLines={1}>
+                  {loadingDetails ? "Decrypting..." : electionDetails?.name || "Election Archive"}
+                </Text>
                 <Text style={styles.modalDate}>Official Results Statement</Text>
               </View>
               <TouchableOpacity onPress={closeModal}><Ionicons name="close-circle" size={32} color="#DDD" /></TouchableOpacity>
             </View>
 
             {loadingDetails ? (
-              <ActivityIndicator color={UNIVERSITY_RED} style={{ marginVertical: 40 }} />
+              <View style={{ paddingVertical: 80, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color={UNIVERSITY_RED} />
+                <Text style={{ marginTop: 15, color: '#999', fontWeight: '700' }}>RECOVERING BLOCKCHAIN DATA...</Text>
+              </View>
+            ) : isError ? (
+              <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                <Ionicons name="alert-circle" size={48} color={UNIVERSITY_RED} />
+                <Text style={{ marginTop: 10, fontWeight: '700' }}>Error Loading Results</Text>
+              </View>
             ) : (
               <ScrollView showsVerticalScrollIndicator={false}>
                 <View style={styles.chartWrapper}>
                    <PieChart
-                    style={{ height: 160 }}
-                    data={(electionDetails?.positions || [1,2,3]).map((_, index: number) => ({
-                      key: index,
-                      value: 1,
-                      svg: { fill: index === 0 ? UNIVERSITY_RED : `hsl(${index * 45}, 70%, 50%)` },
-                    }))}
+                    style={{ height: 160, width: width * 0.7 }}
+                    data={(electionDetails?.positions || []).map((pos: any, index: number) => {
+                      // Total votes per position
+                      const total = pos.candidates?.reduce((acc: number, curr: any) => acc + (curr.votes?.length || 0), 0) || 0;
+                      return {
+                        key: pos.id,
+                        value: total === 0 ? 1 : total, // Avoid 0 value chart errors
+                        svg: { fill: `hsl(${(index * 75) % 360}, 70%, 50%)` },
+                      };
+                    })}
                   />
-                  <Text style={styles.chartCaption}>Vote Distribution Overview</Text>
+                  <Text style={styles.chartCaption}>Aggregated Vote Distribution</Text>
                 </View>
 
-                {/* POSITIONS BREAKDOWN */}
-                {electionDetails?.positions?.map((pos: any, index: number) => (
-                  <View key={index} style={styles.resultRow}>
-                    <View style={styles.trophyBox}><Ionicons name="ribbon" size={24} color={UNIVERSITY_RED} /></View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.posLabel}>{pos.name}</Text>
-                      <Text style={styles.winnerName}>{pos.winner_name || "Results Pending"}</Text>
-                      <Text style={styles.voteSub}>{pos.total_votes || 0} Total Votes Cast</Text>
+                <Text style={styles.breakdownHeader}>Executive Summary</Text>
+                {electionDetails?.positions?.map((pos: any) => {
+                  const winner = getWinnerInfo(pos);
+                  return (
+                    <View key={pos.id} style={styles.resultRow}>
+                      <View style={styles.trophyBox}>
+                        <Ionicons name="ribbon" size={24} color={UNIVERSITY_RED} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.posLabel}>{pos.tier?.toUpperCase()} • {pos.school || 'University Wide'}</Text>
+                        <Text style={styles.winnerName}>{pos.name}</Text>
+                        <View style={styles.winnerPill}>
+                           <Text style={styles.winnerLabel}>Elected: {winner.name}</Text>
+                        </View>
+                        <Text style={styles.voteSub}>{winner.votes} Certified Votes</Text>
+                      </View>
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
                 
                 <TouchableOpacity style={styles.closeFullButton} onPress={closeModal}>
                    <Text style={styles.closeFullButtonText}>Exit Records</Text>
@@ -270,17 +307,20 @@ const styles = StyleSheet.create({
   emptySubtitle: { fontSize: 14, color: '#AAA', textAlign: 'center', paddingHorizontal: 20 },
   retryBtn: { paddingVertical: 14, paddingHorizontal: 30, borderRadius: 15, borderWidth: 1.5, borderColor: UNIVERSITY_RED, marginTop: 20 },
   retryText: { color: UNIVERSITY_RED, fontWeight: '900' },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "flex-end" },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "flex-end" },
   modalCard: { backgroundColor: "#fff", borderTopLeftRadius: 35, borderTopRightRadius: 35, padding: 25, maxHeight: "92%" },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 20 },
-  modalTitle: { fontSize: 22, fontWeight: "900", color: "#111" },
-  modalDate: { fontSize: 11, color: UNIVERSITY_RED, fontWeight: '800' },
-  chartWrapper: { alignItems: 'center', marginBottom: 30, padding: 20, backgroundColor: '#F9FAFB', borderRadius: 24 },
-  chartCaption: { fontSize: 10, fontWeight: '900', color: '#BBB', marginTop: 15 },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 20, alignItems: 'center' },
+  modalTitle: { fontSize: 20, fontWeight: "900", color: "#111" },
+  modalDate: { fontSize: 11, color: UNIVERSITY_RED, fontWeight: '800', textTransform: 'uppercase' },
+  chartWrapper: { alignItems: 'center', marginBottom: 20, padding: 20, backgroundColor: '#F9FAFB', borderRadius: 24 },
+  chartCaption: { fontSize: 10, fontWeight: '900', color: '#BBB', marginTop: 15, textTransform: 'uppercase' },
+  breakdownHeader: { fontSize: 14, fontWeight: '900', color: '#444', marginBottom: 15, marginLeft: 5 },
   resultRow: { flexDirection: "row", alignItems: "center", marginBottom: 12, backgroundColor: '#FFF', padding: 18, borderRadius: 20, borderWidth: 1, borderColor: '#F0F0F0' },
   trophyBox: { width: 48, height: 48, borderRadius: 14, backgroundColor: '#FDF2F2', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
-  posLabel: { fontSize: 10, fontWeight: "900", color: "#BBB" },
-  winnerName: { fontSize: 17, fontWeight: "900", color: "#222" },
+  posLabel: { fontSize: 9, fontWeight: "900", color: "#BBB" },
+  winnerName: { fontSize: 17, fontWeight: "900", color: "#222", marginBottom: 4 },
+  winnerPill: { backgroundColor: '#F0F4FF', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, alignSelf: 'flex-start', marginBottom: 5 },
+  winnerLabel: { fontSize: 11, color: DARK_NAVY, fontWeight: '800' },
   voteSub: { fontSize: 12, color: UNIVERSITY_RED, fontWeight: '700' },
   closeFullButton: { backgroundColor: DARK_NAVY, padding: 18, borderRadius: 18, alignItems: "center", marginTop: 25, marginBottom: 40 },
   closeFullButtonText: { color: "#fff", fontWeight: "900" },

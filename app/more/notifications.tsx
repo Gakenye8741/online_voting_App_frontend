@@ -132,8 +132,8 @@ export default function NotificationPage() {
           </TouchableOpacity>
           <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.navLogo} />
           <View>
-            <Text style={styles.navTitle}>Registry Inbox</Text>
-            <Text style={styles.navSub}>NODE: {regNo || "AUTH"}</Text>
+            <Text style={styles.navTitle}>My Notifications</Text>
+            <Text style={styles.navSub}>Student Registration Number: {regNo || "AUTH"}</Text>
           </View>
         </Animatable.View>
         
@@ -176,7 +176,7 @@ export default function NotificationPage() {
         </Animatable.View>
 
         <View style={styles.sectionDivider}>
-          <Text style={styles.sectionLabel}>Broadcast History</Text>
+          <Text style={styles.sectionLabel}>My Notifications</Text>
           <View style={styles.dividerLine} />
         </View>
 

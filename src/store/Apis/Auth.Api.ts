@@ -15,22 +15,30 @@ export interface LoginRequest {
 
 export interface CompleteProfileRequest {
   name: string;
-  school:
-    | "Science"
-    | "Education"
-    | "Business"
-    | "Humanities and Developmental_Studies"
-    | "TVET";
+  school: "Science" | "Education" | "Business" | "Humanities and Developmental_Studies" | "TVET";
   expected_graduation: string;
   email: string;
 }
 
-export interface SetSecretCodeRequest {
-  secret_code: string;
+export interface RequestOtpRequest {
+  reg_no: string;
+  reason: "password_reset" | "reset_code"; 
 }
 
-export interface AuthenticatedMutation {
-  token?: string; // Optional manual token override
+export interface VerifyOtpPasswordRequest {
+  reg_no: string;
+  otp: string;
+  new_password: string;
+}
+
+export interface VerifyOtpSecretCodeRequest {
+  reg_no: string;
+  otp: string;
+  new_secret_code: string;
+}
+
+export interface SetSecretCodeRequest {
+  secret_code: string;
 }
 
 export interface AuthResponse {
@@ -45,25 +53,34 @@ export interface UserResponse {
   user: any;
 }
 
-// -------------------- API --------------------
+// -------------------- API SLICE --------------------
 export const authApi = createApi({
   reducerPath: "authApi",
   baseQuery: fetchBaseQuery({
-    baseUrl: "https://online-voting-system-oq4p.onrender.com/api/auth/",
+    baseUrl: "https://laikipiavotingsystem-f3aabefwhrendaae.southafricanorth-01.azurewebsites.net/api/auth/",
     prepareHeaders: async (headers, { getState }) => {
       // 1. Try Redux State first
       let token = (getState() as any).auth?.token;
 
-      // 2. Fallback to AsyncStorage
+      // 2. Fallback to AsyncStorage 
+      // CRITICAL: In Production builds, the Redux state is sometimes cleared on reload,
+      // so we MUST check AsyncStorage reliably.
       if (!token) {
-        token = await AsyncStorage.getItem("token");
+        try {
+          token = await AsyncStorage.getItem("token");
+        } catch (e) {
+          console.error("AsyncStorage Error", e);
+        }
       }
 
       if (token) {
-        headers.set("Authorization", `Bearer ${token}`);
+        // Ensure the token string doesn't have extra quotes from JSON.stringify
+        const cleanToken = token.replace(/"/g, "");
+        headers.set("Authorization", `Bearer ${cleanToken}`);
       }
       
       headers.set("Accept", "application/json");
+      headers.set("Content-Type", "application/json");
       return headers;
     },
   }),
@@ -86,34 +103,58 @@ export const authApi = createApi({
       invalidatesTags: ["User"],
     }),
 
-    setSecretCode: builder.mutation<AuthResponse, SetSecretCodeRequest & { token?: string }>({
-      query: ({ secret_code, token }) => ({
-        url: "set-secret-code",
-        method: "PUT",
-        body: { secret_code },
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    requestOtp: builder.mutation<AuthResponse, RequestOtpRequest>({
+      query: (payload) => ({
+        url: "request-otp",
+        method: "POST",
+        body: payload,
       }),
     }),
 
-    // FIXED: No reg_no in URL. Backend uses Token.
-    completeProfile: builder.mutation<AuthResponse, CompleteProfileRequest & { token?: string }>({
-      query: ({ token, ...profileData }) => ({
-        url: "complete-profile",
-        method: "PUT",
-        body: profileData,
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    verifyResetPassword: builder.mutation<AuthResponse, VerifyOtpPasswordRequest>({
+      query: (payload) => ({
+        url: "verify-reset-password",
+        method: "POST",
+        body: payload,
       }),
       invalidatesTags: ["User"],
     }),
 
-    // KEPT: reg_no required for password updates as per your requirement
-    updatePassword: builder.mutation<AuthResponse, { reg_no: string; password: string; token?: string }>({
-      query: ({ reg_no, password, token }) => ({
+    verifyResetSecretCode: builder.mutation<AuthResponse, VerifyOtpSecretCodeRequest>({
+      query: (payload) => ({
+        url: "verify-reset-secret-code",
+        method: "POST",
+        body: payload,
+      }),
+      invalidatesTags: ["User"],
+    }),
+
+    // --- PROTECTED ACTIONS ---
+    completeProfile: builder.mutation<AuthResponse, CompleteProfileRequest>({
+      query: (profileData) => ({
+        url: "complete-profile",
+        method: "PUT", // Ensure your backend Azure API allows PUT in production CORS
+        body: profileData,
+      }),
+      invalidatesTags: ["User"],
+    }),
+
+    setSecretCode: builder.mutation<AuthResponse, SetSecretCodeRequest>({
+      query: (payload) => ({
+        url: "set-secret-code",
+        method: "PUT",
+        body: payload,
+      }),
+      invalidatesTags: ["User"],
+    }),
+
+    updatePassword: builder.mutation<AuthResponse, { reg_no: string; password: string }>({
+      query: ({ reg_no, password }) => ({
         url: `update-password?reg_no=${encodeURIComponent(reg_no)}`,
         method: "PUT",
         body: { password },
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       }),
+      invalidatesTags: ["User"],
     }),
 
     getUserByRegNo: builder.query<UserResponse, string>({
@@ -129,8 +170,11 @@ export const authApi = createApi({
 export const {
   useRegisterMutation,
   useLoginMutation,
-  useSetSecretCodeMutation,
+  useRequestOtpMutation,
+  useVerifyResetPasswordMutation,
+  useVerifyResetSecretCodeMutation,
   useCompleteProfileMutation,
+  useSetSecretCodeMutation,
   useUpdatePasswordMutation,
   useGetUserByRegNoQuery,
 } = authApi;

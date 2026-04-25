@@ -31,6 +31,7 @@ import {
   Candidate,
 } from "@/src/store/Apis/Candidates.Api";
 import { useGetCoalitionsByElectionQuery } from "@/src/store/Apis/Coalition.Api";
+import { useGetPositionsByElectionQuery } from "@/src/store/Apis/Positions.Api";
 
 // --- REFINED TOAST COMPONENT ---
 const Toast = ({ visible, message }: { visible: boolean; message: string }) => {
@@ -84,7 +85,6 @@ export default function CandidatesScreen() {
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [zoomVisible, setZoomVisible] = useState(false); 
-  const [positionsMap, setPositionsMap] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
 
@@ -93,12 +93,16 @@ export default function CandidatesScreen() {
   const cardWidth = (width - 48) / numColumns;
 
   const { data: electionsData, refetch: refetchElections } = useGetAllElectionsQuery();
-  const latestElection = electionsData?.elections
-    ? [...electionsData.elections].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
-    : undefined;
+  const latestElection = useMemo(() => {
+    if (!electionsData?.elections) return undefined;
+    return [...electionsData.elections].sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    )[0];
+  }, [electionsData]);
 
   const latestElectionId = latestElection?.id || "";
 
+  const { data: posData } = useGetPositionsByElectionQuery(latestElectionId, { skip: !latestElectionId });
   const { data: allCandidatesData, isLoading: isLoadingAll, refetch: refetchCandidates } =
     useGetCandidatesByElectionQuery(latestElectionId, { skip: !latestElectionId });
 
@@ -106,17 +110,27 @@ export default function CandidatesScreen() {
   const { data: searchData } = useGetCandidatesByNameQuery(search, { skip: !search });
   const { data: positionData } = useGetCandidatesByPositionQuery(positionFilter || "", { skip: !positionFilter });
 
+  const positionsMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (posData?.positions) {
+      posData.positions.forEach((pos: any) => (map[pos.id] = pos.name));
+    }
+    return map;
+  }, [posData]);
+
   const coalitionMap = useMemo(() => {
     const map: Record<string, { id: string, name: string, color: string, slogan: string }> = {};
-    coalitionData?.coalitions.forEach(c => {
-      map[c.id] = { id: c.id, name: c.name, color: c.color_code || "#c8102e", slogan: c.slogan || "" };
-    });
+    if (coalitionData?.coalitions) {
+      coalitionData.coalitions.forEach(c => {
+        map[c.id] = { id: c.id, name: c.name, color: c.color_code || "#c8102e", slogan: c.slogan || "" };
+      });
+    }
     return map;
   }, [coalitionData]);
 
   let candidates: Candidate[] = [];
-  if (search) candidates = searchData?.candidates || [];
-  else if (positionFilter) candidates = positionData?.candidates || [];
+  if (search) candidates = (searchData?.candidates || []).filter(c => c.election_id === latestElectionId);
+  else if (positionFilter) candidates = (positionData?.candidates || []).filter(c => c.election_id === latestElectionId);
   else candidates = allCandidatesData?.candidates || [];
 
   const filteredCandidates = coalitionFilter
@@ -157,23 +171,6 @@ export default function CandidatesScreen() {
     finally { setRefreshing(false); }
   };
 
-  useEffect(() => {
-    const fetchPositions = async () => {
-      if (!latestElectionId) return;
-      try {
-        const token = await AsyncStorage.getItem("token");
-        const res = await fetch(`https://online-voting-system-oq4p.onrender.com/api/positions?electionId=${latestElectionId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        const map: Record<string, string> = {};
-        data.positions.forEach((pos: any) => (map[pos.id] = pos.name));
-        setPositionsMap(map);
-      } catch (err) { console.error(err); }
-    };
-    fetchPositions();
-  }, [latestElectionId]);
-
   const getInitials = (name: string) => {
     const words = name.split(" ");
     return words.length >= 2 ? `${words[0][0]}${words[1][0]}` : name.substring(0, 2);
@@ -184,13 +181,12 @@ export default function CandidatesScreen() {
       <StatusBar barStyle="dark-content" />
       <Toast visible={toastVisible} message="Content refreshed successfully" />
 
-      {/* --- BALANCED PROFESSIONAL HEADER --- */}
       <View style={styles.topHeader}>
         <Animatable.View animation="fadeInLeft" style={styles.headerLeft}>
           <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.logo} />
           <View>
-            <Text style={styles.greetingText}>Active Election Portal</Text>
-            <Text style={styles.userNameText}>{latestElection?.name || "Official Ballot"} CANDIDATES</Text>
+            <Text style={styles.greetingText}>Look for you Candidates here</Text>
+            <Text style={styles.userNameText}>{latestElection?.name || "Official Ballot"} Candidates</Text>
           </View>
         </Animatable.View>
         <View style={styles.liveBadgeHome}>
@@ -359,25 +355,38 @@ export default function CandidatesScreen() {
                     </View>
 
                     <View style={styles.detailCard}>
-    <Text style={styles.detailHeading}>Student Information</Text>
-    {/* Changed <div> to <View> below */}
-    <View style={styles.infoGrid}> 
-        <View style={styles.infoItem}>
-            <Ionicons name="school" size={18} color="#c8102e" />
-            <View>
-                <Text style={styles.infoLabel}>School/Department</Text>
-                <Text style={styles.infoValue}>{selectedCandidate.school}</Text>
-            </View>
-        </View>
-        <View style={styles.infoItem}>
-            <Ionicons name="shield-checkmark" size={18} color="#4CD964" />
-            <View>
-                <Text style={styles.infoLabel}>Verification Status</Text>
-                <Text style={[styles.infoValue, {color: '#4CD964'}]}>Verified & Duly Cleared</Text>
-            </View>
-        </View>
-    </View> {/* Changed </div> to </View> here too */}
-</View>
+                        <Text style={styles.detailHeading}>Official Profile Details</Text>
+                        <View style={styles.infoGrid}> 
+                            <View style={styles.infoItem}>
+                                <Ionicons name="card-outline" size={18} color="#c8102e" />
+                                <View>
+                                    <Text style={styles.infoLabel}>User Digital Id No.</Text>
+                                    <Text style={styles.infoValue}>{selectedCandidate.user_id || "N/A"}</Text>
+                                </View>
+                            </View>
+                            <View style={styles.infoItem}>
+                                <Ionicons name="school-outline" size={18} color="#c8102e" />
+                                <View>
+                                    <Text style={styles.infoLabel}>School / Department</Text>
+                                    <Text style={styles.infoValue}>{selectedCandidate.school}</Text>
+                                </View>
+                            </View>
+                            <View style={styles.infoItem}>
+                                <Ionicons name="calendar-outline" size={18} color="#c8102e" />
+                                <View>
+                                    <Text style={styles.infoLabel}>Year of Study</Text>
+                                    <Text style={styles.infoValue}>{selectedCandidate.student_id || "N/A"}</Text>
+                                </View>
+                            </View>
+                            <View style={styles.infoItem}>
+                                <Ionicons name="shield-checkmark" size={18} color="#4CD964" />
+                                <View>
+                                    <Text style={styles.infoLabel}>Verification Status</Text>
+                                    <Text style={[styles.infoValue, {color: '#4CD964'}]}>Duly Cleared & Certified</Text>
+                                </View>
+                            </View>
+                        </View>
+                    </View>
 
                     <View style={styles.manifestoSection}>
                         <View style={styles.manifestoHeader}>
@@ -385,13 +394,22 @@ export default function CandidatesScreen() {
                             <Text style={styles.manifestoLabel}>MANIFESTO & VISION</Text>
                         </View>
                         <Text style={styles.manifestoText}>
-                            {selectedCandidate.manifesto || selectedCandidate.bio || "This candidate has not provided a detailed manifesto for this election cycle."}
+                            {selectedCandidate.manifesto || selectedCandidate.bio || "The candidate's vision for this position is currently being processed for the upcoming polls."}
                         </Text>
+                    </View>
+
+                    <View style={styles.contactMiniCard}>
+                         <Text style={styles.detailHeading}>Digital Presence</Text>
+                         <View style={styles.socialRow}>
+                            <TouchableOpacity style={styles.socialIcon}><Ionicons name="logo-instagram" size={20} color="#E1306C" /></TouchableOpacity>
+                            <TouchableOpacity style={styles.socialIcon}><Ionicons name="logo-twitter" size={20} color="#1DA1F2" /></TouchableOpacity>
+                            <TouchableOpacity style={styles.socialIcon}><Ionicons name="logo-linkedin" size={20} color="#0077B5" /></TouchableOpacity>
+                         </View>
                     </View>
                 </ScrollView>
 
                 <TouchableOpacity style={styles.voteNavBtn} onPress={() => setModalVisible(false)}>
-                  <Text style={styles.voteNavText}>Return to Candidates</Text>
+                  <Text style={styles.voteNavText}>Return to Candidates List</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -463,7 +481,6 @@ const CandidateCard = ({ candidate, index, cardWidth, positionsMap, onPress, coa
 };
 
 const styles = StyleSheet.create({
-  // --- REFINED HEADER STYLES ---
   safeArea: { flex: 1, backgroundColor: "#fff" },
   topHeader: { 
     flexDirection: 'row', 
@@ -492,8 +509,6 @@ const styles = StyleSheet.create({
   },
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#4CD964', marginRight: 6 },
   liveBadgeTextHome: { color: '#111', fontSize: 10, fontWeight: '800' },
-  
-  // --- REFINED TOAST ---
   toastContainer: { position: 'absolute', top: 50, left: 20, right: 20, zIndex: 9999, alignItems: 'center' },
   toastContent: { 
     backgroundColor: '#fff', 
@@ -511,8 +526,6 @@ const styles = StyleSheet.create({
     shadowRadius: 10
   },
   toastText: { color: '#111', fontSize: 14, fontWeight: '700', marginLeft: 10 },
-
-  // --- ORIGINAL CARD & BODY STYLES (RETAINED) ---
   scrollContent: { paddingBottom: 30 },
   mainContainer: { padding: 16, backgroundColor: '#f8f9fa' },
   searchSection: { marginBottom: 20 },
@@ -523,7 +536,6 @@ const styles = StyleSheet.create({
   picker: { width: '110%', marginLeft: 15, color: '#444' },
   pickerIcon: { position: 'absolute', left: 8, zIndex: 1 },
   clearBtn: { backgroundColor: '#333', width: 45, height: 45, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  
   sectionContainer: { marginBottom: 25 },
   sectionHeader: { marginBottom: 15 },
   sectionTitleBox: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 5 },
@@ -531,12 +543,10 @@ const styles = StyleSheet.create({
   countPill: { backgroundColor: '#c8102e15', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   countPillText: { fontSize: 12, fontWeight: '800', color: '#c8102e' },
   divider: { height: 3, width: 40, backgroundColor: '#c8102e', borderRadius: 2 },
-  
   coalitionHero: { padding: 15, borderRadius: 16, borderLeftWidth: 5, marginBottom: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 },
   coalitionInfo: { flex: 1 },
   coalitionTitle: { fontSize: 18, fontWeight: '900', textTransform: 'uppercase' },
   coalitionSlogan: { fontSize: 12, color: '#777', fontStyle: 'italic', marginTop: 2 },
-  
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   card: { borderRadius: 20, backgroundColor: '#fff', elevation: 4, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 12, marginBottom: 4 },
   cardInner: { padding: 12, alignItems: 'center' },
@@ -553,10 +563,8 @@ const styles = StyleSheet.create({
   coalitionTagText: { fontSize: 9, fontWeight: '800' },
   cardFooter: { flexDirection: 'row', alignItems: 'center', marginTop: 12, borderTopWidth: 1, borderTopColor: '#f5f5f5', paddingTop: 8, width: '100%', justifyContent: 'center' },
   viewProfileText: { fontSize: 10, fontWeight: '700', color: '#999', marginRight: 4 },
-
   loaderContainer: { marginTop: 100, alignItems: 'center' },
   loaderText: { marginTop: 10, color: '#666', fontWeight: '600' },
-  
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
   modalContent: { backgroundColor: "#fff", borderTopLeftRadius: 30, borderTopRightRadius: 30, padding: 24, height: '90%' },
   modalDragHandle: { width: 40, height: 5, backgroundColor: '#eee', borderRadius: 3, alignSelf: 'center', marginBottom: 15 },
@@ -576,10 +584,13 @@ const styles = StyleSheet.create({
   infoItem: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   infoLabel: { fontSize: 11, color: '#999', fontWeight: '600' },
   infoValue: { fontSize: 14, color: '#333', fontWeight: '700' },
-  manifestoSection: { backgroundColor: '#fff', borderRadius: 20, padding: 20, marginBottom: 20, borderLeftWidth: 4, borderLeftColor: '#c8102e', elevation: 2 },
+  manifestoSection: { backgroundColor: '#fff', borderRadius: 20, padding: 20, marginBottom: 15, borderLeftWidth: 4, borderLeftColor: '#c8102e', elevation: 2 },
   manifestoHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
   manifestoLabel: { fontSize: 13, fontWeight: '900', color: '#1a1a1a', letterSpacing: 1 },
   manifestoText: { fontSize: 15, color: "#444", lineHeight: 24, fontStyle: 'italic' },
+  contactMiniCard: { backgroundColor: '#fff', borderRadius: 20, padding: 15, marginBottom: 20, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
+  socialRow: { flexDirection: 'row', gap: 15, marginTop: 5 },
+  socialIcon: { backgroundColor: '#f5f5f5', width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
   voteNavBtn: { backgroundColor: "#c8102e", paddingVertical: 18, borderRadius: 18, alignItems: "center", marginBottom: 20 },
   voteNavText: { color: "#fff", fontWeight: "900", fontSize: 16 },
   zoomOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },

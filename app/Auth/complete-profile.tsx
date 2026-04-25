@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
+  Dimensions,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
@@ -19,6 +20,8 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { Picker } from "@react-native-picker/picker";
 import AppLayout from "@/src/components/AppLayout";
 import { useCompleteProfileMutation } from "@/src/store/Apis/Auth.Api";
+
+const { height: screenHeight } = Dimensions.get("window");
 
 const schools = [
   "Science",
@@ -48,24 +51,17 @@ export default function CompleteProfile() {
         const storedToken = await AsyncStorage.getItem("token");
         const storedUser = await AsyncStorage.getItem("user");
         
-        console.log("Raw Stored User:", storedUser); // Check your console!
-
         if (storedToken && storedUser) {
           const parsedUser = JSON.parse(storedUser);
           setToken(storedToken);
-          
-          // Make sure this matches your backend's key (reg_no)
           const fetchedRegNo = parsedUser.reg_no || parsedUser.regNo || "Not Found";
           setRegNo(fetchedRegNo);
-
           setName(parsedUser.name || "");
           setSchool(parsedUser.school || "");
           setEmail(parsedUser.email || "");
           
           if (parsedUser.expected_graduation) {
-            const [month, year] = parsedUser.expected_graduation
-              .split("/")
-              .map(Number);
+            const [month, year] = parsedUser.expected_graduation.split("/").map(Number);
             setExpectedGraduation(new Date(year, month - 1));
           }
         }
@@ -77,7 +73,7 @@ export default function CompleteProfile() {
   }, []);
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
-    setShowDatePicker(Platform.OS === "ios");
+    setShowDatePicker(false); 
     if (selectedDate) setExpectedGraduation(selectedDate);
   };
 
@@ -93,8 +89,6 @@ export default function CompleteProfile() {
       Alert.alert("Incomplete", "Please fill all fields.");
       return;
     }
-    
-    // We check token here as a fallback, but RTK prepareHeaders handles it
     if (!token) {
       Alert.alert("Error", "User not authenticated.");
       return;
@@ -108,14 +102,11 @@ export default function CompleteProfile() {
         expected_graduation: formatDate(expectedGraduation),
       }).unwrap();
 
-      // Store updated user info from response
+      // Update storage with the new user profile data
       await AsyncStorage.setItem("user", JSON.stringify(result.user));
-
-      Alert.alert(
-        "Success",
-        "Profile completed successfully! Your personal information is safe."
-      );
-      router.replace("/(tabs)");
+      
+      // Redirect to the secret code page instead of tabs
+      router.replace("/Auth/secret-code");
     } catch (err: any) {
       Alert.alert("Error", err.data?.message || err.message || "Failed to update profile");
     }
@@ -124,104 +115,108 @@ export default function CompleteProfile() {
   return (
     <AppLayout>
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={{ flex: 1, backgroundColor: "#fff" }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
       >
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <Animatable.Image
-            animation="bounceIn"
-            duration={1500}
-            source={require('@/assets/images/Laikipia-logo.png')}
-            style={styles.logo}
-          />
+          <View style={styles.innerWrapper}>
+            <Animatable.Image
+              animation="bounceIn"
+              duration={1500}
+              source={require('@/assets/images/Laikipia-logo.png')}
+              style={styles.logo}
+            />
 
-          <Animatable.Text animation="fadeInDown" style={styles.title}>
-            Complete Your Profile
-          </Animatable.Text>
-          
-          {/* Displaying the Reg No from AsyncStorage */}
-          <Animatable.Text animation="fadeIn" style={styles.regNoBadge}>
-            Registration No: {regNo || "Loading..."}
-          </Animatable.Text>
+            <Animatable.Text animation="fadeInDown" style={styles.title}>
+              Complete Your Profile
+            </Animatable.Text>
+            
+            <Animatable.Text animation="fadeIn" style={styles.regNoBadge}>
+              Registration No: {regNo || "Loading..."}
+            </Animatable.Text>
 
-          <Animatable.Text animation="fadeInDown" style={styles.subtitle}>
-            Please fill in your details. Your information will remain private and
-            will not be shared during voting.
-          </Animatable.Text>
+            <Animatable.Text animation="fadeInDown" style={styles.subtitle}>
+              Please fill in your details. Your information will remain private.
+            </Animatable.Text>
 
-          <View style={styles.formContainer}>
-            <Animatable.View animation="fadeInUp" delay={200} style={styles.inputContainer}>
-              <Text style={styles.label}>Full Name</Text>
-              <TextInput
-                style={styles.input}
-                value={name}
-                onChangeText={setName}
-                placeholder="Enter your full name"
-                placeholderTextColor="#999"
-              />
-            </Animatable.View>
-
-            <Animatable.View animation="fadeInUp" delay={400} style={styles.inputContainer}>
-              <Text style={styles.label}>School</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={school}
-                  onValueChange={(itemValue) =>
-                    setSchool(itemValue as any)
-                  }
-                >
-                  <Picker.Item label="Select school" value="" />
-                  {schools.map((s) => (
-                    <Picker.Item key={s} label={s} value={s} />
-                  ))}
-                </Picker>
-              </View>
-            </Animatable.View>
-
-            <Animatable.View animation="fadeInUp" delay={600} style={styles.inputContainer}>
-              <Text style={styles.label}>Email</Text>
-              <TextInput
-                style={styles.input}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="Enter your email"
-                keyboardType="email-address"
-                placeholderTextColor="#999"
-              />
-            </Animatable.View>
-
-            <Animatable.View animation="fadeInUp" delay={800} style={styles.inputContainer}>
-              <Text style={styles.label}>Expected Graduation</Text>
-              <TouchableOpacity
-                style={styles.input}
-                onPress={() => setShowDatePicker(true)}
-              >
-                <Text style={{ color: expectedGraduation ? "#000" : "#999", fontSize: 16 }}>
-                  {formatDate(expectedGraduation) || "Select month/year"}
-                </Text>
-              </TouchableOpacity>
-              {showDatePicker && (
-                <DateTimePicker
-                  value={expectedGraduation || new Date()}
-                  mode="date"
-                  display="spinner"
-                  onChange={handleDateChange}
+            <View style={styles.formContainer}>
+              <Animatable.View animation="fadeInUp" delay={200} style={styles.inputContainer}>
+                <Text style={styles.label}>Full Name</Text>
+                <TextInput
+                  style={styles.input}
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="Enter your full name"
+                  placeholderTextColor="#999"
                 />
-              )}
-            </Animatable.View>
+              </Animatable.View>
 
-            <Animatable.View animation="fadeInUp" delay={1000}>
-              <TouchableOpacity
-                style={styles.button}
-                onPress={handleSubmit}
-                disabled={isUpdating}
-              >
-                {isUpdating ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Submit</Text>}
-              </TouchableOpacity>
-            </Animatable.View>
+              <Animatable.View animation="fadeInUp" delay={400} style={styles.inputContainer}>
+                <Text style={styles.label}>School</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={school}
+                    onValueChange={(itemValue) => setSchool(itemValue as any)}
+                    dropdownIconColor="#c8102e"
+                    style={styles.picker}
+                  >
+                    <Picker.Item label="Select school" value="" color="#999" />
+                    {schools.map((s) => (
+                      <Picker.Item key={s} label={s.replace(/_/g, " ")} value={s} color="#000" />
+                    ))}
+                  </Picker>
+                </View>
+              </Animatable.View>
+
+              <Animatable.View animation="fadeInUp" delay={600} style={styles.inputContainer}>
+                <Text style={styles.label}>Email</Text>
+                <TextInput
+                  style={styles.input}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="Enter your email"
+                  keyboardType="email-address"
+                  placeholderTextColor="#999"
+                  autoCapitalize="none"
+                />
+              </Animatable.View>
+
+              <Animatable.View animation="fadeInUp" delay={800} style={styles.inputContainer}>
+                <Text style={styles.label}>Expected Graduation</Text>
+                <TouchableOpacity
+                  style={styles.input}
+                  onPress={() => setShowDatePicker(true)}
+                >
+                  <Text style={{ color: expectedGraduation ? "#000" : "#999", fontSize: 16 }}>
+                    {formatDate(expectedGraduation) || "Select month/year"}
+                  </Text>
+                </TouchableOpacity>
+                {showDatePicker && (
+                  <DateTimePicker
+                    value={expectedGraduation || new Date()}
+                    mode="date"
+                    is24Hour={true}
+                    display={Platform.OS === "ios" ? "spinner" : "default"}
+                    onChange={handleDateChange}
+                  />
+                )}
+              </Animatable.View>
+
+              <Animatable.View animation="fadeInUp" delay={1000}>
+                <TouchableOpacity
+                  style={styles.button}
+                  onPress={handleSubmit}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Submit Details</Text>}
+                </TouchableOpacity>
+              </Animatable.View>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -232,50 +227,72 @@ export default function CompleteProfile() {
 const styles = StyleSheet.create({
   container: { 
     flexGrow: 1, 
-    justifyContent: "center", 
-    alignItems: "center", 
-    paddingHorizontal: 25, 
-    paddingVertical: 30,
+    justifyContent: "center",
     backgroundColor: "#fff",
   },
-  logo: { width: 120, height: 120, marginBottom: 20 },
-  title: { fontSize: 26, fontWeight: "bold", color: "#c8102e", textAlign: "center", marginBottom: 5 },
+  innerWrapper: {
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 25, 
+    paddingVertical: 30,
+    minHeight: screenHeight * 0.8,
+    justifyContent: 'center'
+  },
+  logo: { width: 90, height: 90, marginBottom: 15 },
+  title: { fontSize: 24, fontWeight: "bold", color: "#c8102e", textAlign: "center", marginBottom: 5 },
   regNoBadge: { 
     fontSize: 14, 
     color: "#666", 
-    backgroundColor: "#f0f0f0", 
+    backgroundColor: "#f5f5f5", 
     paddingHorizontal: 12, 
-    paddingVertical: 4, 
-    borderRadius: 15, 
+    paddingVertical: 6, 
+    borderRadius: 20, 
     marginBottom: 15,
-    fontWeight: "600"
+    fontWeight: "700",
+    borderWidth: 1,
+    borderColor: "#eee"
   },
-  subtitle: { fontSize: 16, color: "#444", textAlign: "center", marginBottom: 25 },
+  subtitle: { fontSize: 14, color: "#555", textAlign: "center", marginBottom: 25, lineHeight: 20 },
   formContainer: { width: "100%" },
   inputContainer: { marginBottom: 15 },
-  label: { fontSize: 16, fontWeight: "500", color: "#444", marginBottom: 5 },
+  label: { fontSize: 14, fontWeight: "700", color: "#333", marginBottom: 6 },
   input: { 
     backgroundColor: "#fff", 
-    borderRadius: 8, 
+    borderRadius: 12, 
     paddingHorizontal: 15, 
-    paddingVertical: 12, 
+    height: 55,
+    justifyContent: 'center',
     fontSize: 16, 
-    borderWidth: 1, 
-    borderColor: "#ddd", 
-    color: "#333" 
+    borderWidth: 1.5, 
+    borderColor: "#f0f0f0", 
+    color: "#000"
   },
   pickerContainer: { 
     backgroundColor: "#fff", 
-    borderWidth: 1, 
-    borderColor: "#ddd", 
-    borderRadius: 8 
+    borderWidth: 1.5, 
+    borderColor: "#f0f0f0", 
+    borderRadius: 12,
+    height: 55,
+    justifyContent: 'center',
+    overflow: 'hidden'
+  },
+  picker: {
+    width: "100%",
+    color: "#000",
+    marginLeft: Platform.OS === 'android' ? -5 : 0
   },
   button: { 
     backgroundColor: "#c8102e", 
-    paddingVertical: 15, 
-    borderRadius: 8, 
+    height: 55,
+    borderRadius: 12, 
     alignItems: "center", 
-    marginTop: 15 
+    justifyContent: 'center',
+    marginTop: 15,
+    elevation: 3,
+    shadowColor: "#c8102e",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5
   },
   buttonText: { color: "#fff", fontWeight: "bold", fontSize: 18 },
 });

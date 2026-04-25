@@ -32,7 +32,7 @@ export interface SingleUserResponse {
 export const usersApi = createApi({
   reducerPath: "usersApi",
   baseQuery: fetchBaseQuery({
-    baseUrl: "https://online-voting-system-oq4p.onrender.com/api/users/",
+    baseUrl: "https://laikipiavotingsystem-f3aabefwhrendaae.southafricanorth-01.azurewebsites.net/api/users/",
     prepareHeaders: async (headers, { getState }) => {
       let token = (getState() as any).auth.token;
 

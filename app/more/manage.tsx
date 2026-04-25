@@ -140,8 +140,8 @@ export default function ProfileScreen() {
           </TouchableOpacity>
           <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.logo} />
           <View>
-            <Text style={styles.headerTitle}>Voter Terminal</Text>
-            <Text style={styles.headerSub}>NODE: {userData?.id.slice(0, 8).toUpperCase()}</Text>
+            <Text style={styles.headerTitle}>Manage Profile</Text>
+            <Text style={styles.headerSub}>ID: {userData?.id.slice(0, 8).toUpperCase()}</Text>
           </View>
         </Animatable.View>
         
@@ -178,6 +178,7 @@ export default function ProfileScreen() {
                 <View style={styles.cardInfo}>
                     <Text style={styles.cardName}>{userData?.name.toUpperCase()}</Text>
                     <Text style={styles.cardReg}>{userData?.reg_no}</Text>
+                    <Text style={styles.cardEmailText} numberOfLines={1}>{userData?.email}</Text>
                     <View style={styles.eligibilityBadge}>
                         <Text style={styles.eligibilityText}>ELIGIBLE VOTER</Text>
                     </View>
@@ -214,9 +215,10 @@ export default function ProfileScreen() {
         {/* SECURITY & RECORD DETAILS */}
         <View style={styles.infoSection}>
           <Text style={styles.sectionLabel}>Election Metadata</Text>
+          <InfoItem icon="mail-outline" label="Voter Email" value={userData?.email} isLocked />
           <InfoItem icon="ribbon-outline" label="Constituency" value={userData?.school} showArrow />
           <InfoItem icon="calendar-outline" label="Graduation Year" value={userData?.expected_graduation} isLocked />
-        <InfoItem 
+          <InfoItem 
             icon="calendar-clear-outline" 
             label="Registration Date" 
             value={userData?.created_at ? new Date(userData.created_at).toLocaleDateString('en-GB', {
@@ -265,16 +267,16 @@ export default function ProfileScreen() {
             <Text style={styles.inputLabel}>University School</Text>
             <TextInput style={styles.input} value={form.school} onChangeText={(t) => setForm({...form, school: t})} />
 
-            <Text style={styles.inputLabel}>Expected Graduation (System Locked)</Text>
+            <Text style={styles.inputLabel}>Email Address (System Locked)</Text>
             <TextInput 
               style={[styles.input, styles.disabledInput]} 
-              value={userData?.expected_graduation} 
+              value={userData?.email} 
               editable={false} 
             />
             
             <View style={styles.noteBox}>
                 <Ionicons name="information-circle" size={18} color={UNIVERSITY_RED} />
-                <Text style={styles.noteText}>Contact Admin to update Graduation dates. All metadata changes are audited.</Text>
+                <Text style={styles.noteText}>Contact Admin to update Graduation dates or Emails. Changes are audited.</Text>
             </View>
 
             <TouchableOpacity style={styles.saveBtn} onPress={handleUpdate} disabled={isUpdating}>
@@ -329,14 +331,15 @@ const styles = StyleSheet.create({
   
   heroSection: { alignItems: "center", paddingVertical: 25, backgroundColor: CLEAN_WHITE, borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 4 },
   voterCard: { width: '90%', height: 180, backgroundColor: UNIVERSITY_BLACK, borderRadius: 20, padding: 20, elevation: 10 },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
+  cardTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
   cardLogo: { width: 35, height: 35, resizeMode: 'contain' },
   chip: { width: 40, height: 30, backgroundColor: 'gold', borderRadius: 5, opacity: 0.8 },
   cardBody: { flexDirection: 'row', alignItems: 'center' },
   avatarBorder: { width: 70, height: 70, borderRadius: 35, borderWidth: 2, borderColor: UNIVERSITY_RED, backgroundColor: '#1e1e1e', justifyContent: 'center', alignItems: 'center' },
   cardInfo: { marginLeft: 15, flex: 1 },
-  cardName: { color: CLEAN_WHITE, fontSize: 16, fontWeight: '900' },
-  cardReg: { color: '#AAA', fontSize: 12, fontWeight: '600' },
+  cardName: { color: CLEAN_WHITE, fontSize: 15, fontWeight: '900' },
+  cardReg: { color: '#AAA', fontSize: 11, fontWeight: '600' },
+  cardEmailText: { color: '#777', fontSize: 10, marginTop: 1, fontWeight: '600' },
   eligibilityBadge: { backgroundColor: SUCCESS_GREEN, alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, marginTop: 8 },
   eligibilityText: { color: CLEAN_WHITE, fontSize: 8, fontWeight: '900' },
   cardFooter: { marginTop: 'auto', borderTopWidth: 0.5, borderColor: '#333', paddingTop: 8 },
@@ -356,7 +359,7 @@ const styles = StyleSheet.create({
   iconContainer: { width: 36, height: 36, borderRadius: 10, backgroundColor: "#FFF2F2", justifyContent: "center", alignItems: "center" },
   infoContent: { marginLeft: 15, flex: 1 },
   infoLabel: { fontSize: 8, color: "#AAA", fontWeight: "800", textTransform: "uppercase" },
-  infoValue: { fontSize: 14, color: DARK_NAVY, fontWeight: "700", marginTop: 1 },
+  infoValue: { fontSize: 13, color: DARK_NAVY, fontWeight: "700", marginTop: 1 },
   
   deleteBox: { flexDirection: "row", alignItems: "center", backgroundColor: "#FFF8F7", padding: 15, borderRadius: 15, borderWidth: 1, borderColor: "#FFE0DE" },
   dangerIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: "#FFE0DE", justifyContent: "center", alignItems: "center" },

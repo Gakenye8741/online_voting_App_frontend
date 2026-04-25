@@ -9,6 +9,8 @@ export interface Candidate {
   photo_url?: string;
   bio?: string;
   vote_count?: number;
+  user?: any; // To hold student profile info
+  votes?: any[]; // Array of vote records
 }
 
 export interface Position {
@@ -16,7 +18,13 @@ export interface Position {
   name: string;
   tier: string;
   total_votes?: number;
-  winner_name?: string; // For archives/results
+  winner_name?: string; 
+  candidates?: Candidate[];
+}
+
+export interface Coalition {
+  id: string;
+  name: string;
   candidates?: Candidate[];
 }
 
@@ -25,19 +33,31 @@ export interface Election {
   name: string;          
   start_date: string;    
   end_date: string;      
-  status?: "upcoming" | "ongoing" | "completed";
+  status?: "upcoming" | "ongoing" | "finished";
   createdAt: string;     
   updatedAt: string;     
   created_by?: string;   
-  delegate_end_date:string;
+  delegate_end_date: string;
   delegate_start_date: string;
 }
 
-// Fixed: Added positions to the response type
+// New: Interface for the comprehensive results view
+export interface ElectionResultsResponse {
+  results: {
+    id: string;
+    name: string;
+    positions: Position[];
+    coalitions: Coalition[];
+    delegates: any[];
+    delegateVotes: any[];
+    settings?: any;
+  }
+}
+
 export interface ElectionResponse {
   message?: string;
   election?: Election;
-  positions?: Position[]; // Crucial for the Archives screen
+  positions?: Position[]; 
 }
 
 export interface ElectionsResponse {
@@ -48,12 +68,10 @@ export interface ElectionsResponse {
 export const electionsApi = createApi({
   reducerPath: "electionsApi",
   baseQuery: fetchBaseQuery({
-    baseUrl: "https://online-voting-system-oq4p.onrender.com/api/elections/",
+    baseUrl: "https://laikipiavotingsystem-f3aabefwhrendaae.southafricanorth-01.azurewebsites.net/api/elections/",
     prepareHeaders: async (headers, { getState }) => {
-      // Try to get token from Redux state first
       let token = (getState() as any).auth.token;
       
-      // Fallback to AsyncStorage if state is cleared on refresh
       if (!token) {
         token = await AsyncStorage.getItem("token");
       }
@@ -127,6 +145,15 @@ export const electionsApi = createApi({
       }),
       providesTags: ["Elections"],
     }),
+
+    // New: Fetch full results (Candidates, Votes, Delegates, Coalitions)
+    getElectionResults: builder.query<ElectionResultsResponse, string>({
+      query: (id) => ({
+        url: `/${id}/results`,
+        method: "GET",
+      }),
+      providesTags: (result, error, id) => [{ type: "Elections", id }],
+    }),
   }),
 });
 
@@ -139,4 +166,5 @@ export const {
   useGetAllElectionsQuery,
   useGetElectionByIdQuery,
   useGetElectionsByStatusQuery,
+  useGetElectionResultsQuery, // Exported the new hook
 } = electionsApi;

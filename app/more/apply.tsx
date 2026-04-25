@@ -12,6 +12,7 @@ import {
   Platform,
   Image,
   Modal,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -22,7 +23,7 @@ import axios from "axios";
 import * as Animatable from "react-native-animatable";
 
 // API Hooks
-import { useGetAllPositionsQuery } from "@/src/store/Apis/Positions.Api";
+import { useGetPositionsByElectionQuery } from "@/src/store/Apis/Positions.Api";
 import { useGetAllElectionsQuery } from "@/src/store/Apis/Election.Api";
 import { 
   useCreateApplicationMutation, 
@@ -93,16 +94,62 @@ export default function ApplyCandidateScreen() {
   }, []);
 
   // API Queries & Mutations
-  const { data: electionData, isLoading: loadingElections } = useGetAllElectionsQuery();
-  const { data: positionData, isLoading: loadingPositions } = useGetAllPositionsQuery();
-  const { data: existingApp } = useGetApplicationsByStudentQuery(undefined, {
+  const { 
+    data: electionData, 
+    isLoading: loadingElections, 
+    refetch: refetchElections,
+    isFetching: isFetchingElections 
+  } = useGetAllElectionsQuery();
+  
+  // Get Latest Election ID
+  const latestElectionId = useMemo(() => {
+    if (!electionData?.elections) return "";
+    const sorted = [...electionData.elections].sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    return sorted[0]?.id || "";
+  }, [electionData]);
+
+  // Set default election
+  useEffect(() => {
+    if (latestElectionId && !form.election_id) {
+      setForm(prev => ({ ...prev, election_id: latestElectionId }));
+    }
+  }, [latestElectionId]);
+
+  const { 
+    data: positionData, 
+    isLoading: loadingPositions, 
+    refetch: refetchPositions,
+    isFetching: isFetchingPositions
+  } = useGetPositionsByElectionQuery(
+    form.election_id || latestElectionId, 
+    { skip: !form.election_id && !latestElectionId }
+  );
+
+  // Fetch student application history to prevent duplicates
+  const { data: existingApp, refetch: refetchApps, isFetching: isFetchingApps } = useGetApplicationsByStudentQuery(undefined, {
     skip: !authState.userId 
   });
   const [createApplication, { isLoading: isSubmitting }] = useCreateApplicationMutation();
 
+  // Refresh logic
+  const onRefresh = React.useCallback(() => {
+    refetchElections();
+    refetchPositions();
+    refetchApps();
+  }, []);
+
+  // COLLISION CHECK
+  const hasAlreadyApplied = useMemo(() => {
+    if (!form.election_id || !existingApp) return false;
+    const apps = Array.isArray(existingApp) ? existingApp : [existingApp];
+    return apps.some((app: any) => app.election_id === form.election_id);
+  }, [form.election_id, existingApp]);
+
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'], 
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, 
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
@@ -121,18 +168,16 @@ export default function ApplyCandidateScreen() {
     }
   };
 
-  const hasAlreadyApplied = useMemo(() => {
-    if (!form.election_id || !existingApp) return false;
-    return Array.isArray(existingApp) 
-      ? existingApp.some(app => app.election_id === form.election_id)
-      : (existingApp as any).election_id === form.election_id;
-  }, [form.election_id, existingApp]);
-
   const activeElections = useMemo(() => {
     return electionData?.elections?.filter(e => e.status === "ongoing" || e.status === "upcoming") || [];
   }, [electionData]);
 
   const handleSubmit = async () => {
+    if (hasAlreadyApplied) {
+        Alert.alert("Protocol Violation", "Duplicate candidacy detected in the ledger.");
+        return;
+    }
+
     setConfirmModalVisible(false);
     
     try {
@@ -140,7 +185,6 @@ export default function ApplyCandidateScreen() {
       let finalUrl = form.photo_url;
 
       if (form.localFile) {
-        console.log("DEBUG: Initializing Cloudinary Upload...");
         const cloudFormData = new FormData();
         cloudFormData.append('file', form.localFile as any);
         cloudFormData.append('upload_preset', preset_key);
@@ -156,7 +200,6 @@ export default function ApplyCandidateScreen() {
             },
           }
         );
-        console.log("DEBUG: Cloudinary Success:", response.data.secure_url);
         finalUrl = response.data.secure_url;
       }
 
@@ -169,21 +212,14 @@ export default function ApplyCandidateScreen() {
         election_id: form.election_id,
       };
 
-      console.log("DEBUG: Sending Payload to Backend:", JSON.stringify(payload, null, 2));
-
-      // Triggering the mutation
-      const result = await createApplication(payload).unwrap();
-      console.log("DEBUG: Backend Submission Success:", result);
+      await createApplication(payload).unwrap();
 
       Alert.alert("Registry Updated", "Your candidacy has been broadcast to the election ledger.", [
         { text: "Return Home", onPress: () => navigation.goBack() }
       ]);
     } catch (err: any) {
-      console.error("DEBUG: Submission Error Caught:", err);
-      if (err.data) console.error("DEBUG: Server Response Data:", err.data);
-      
-      const errorMessage = err?.data?.message || err?.message || "Internal server error during submission.";
-      Alert.alert("Submission Error", errorMessage);
+      const errorMessage = err?.data?.message || err?.data?.error || err?.message || "Internal server error during submission.";
+      Alert.alert("Protocol Refused", errorMessage);
     } finally {
       setIsUploading(false);
       setUploadProgress(0);
@@ -207,15 +243,24 @@ export default function ApplyCandidateScreen() {
           </TouchableOpacity>
           <Image source={require('@/assets/images/Laikipia-logo.png')} style={styles.logo} />
           <View>
-            <Text style={styles.headerTitle}>Candidacy Terminal</Text>
-            <Text style={styles.headerSub}>NODE: {authState.userId.slice(0, 8).toUpperCase()}</Text>
+            <Text style={styles.headerTitle}>Apply Position</Text>
+            <Text style={styles.headerSub}>ID: {authState.userId.slice(0, 8).toUpperCase()}</Text>
           </View>
         </View>
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent} 
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl 
+              refreshing={isFetchingElections || isFetchingPositions || isFetchingApps} 
+              onRefresh={onRefresh} 
+              tintColor={UNIVERSITY_RED}
+            />
+          }
+        >
           <Animatable.View animation="fadeInUp" duration={1000} style={styles.profileCard}>
             <View style={styles.profileHeader}>
               <MaterialCommunityIcons name="account-details" size={40} color={DARK_NAVY} />
@@ -236,6 +281,13 @@ export default function ApplyCandidateScreen() {
             </View>
           </Animatable.View>
 
+          {hasAlreadyApplied && (
+            <Animatable.View animation="shake" style={styles.warningBox}>
+              <MaterialCommunityIcons name="shield-alert" size={20} color="#B71C1C" />
+              <Text style={styles.warningText}>Collision detected: Candidacy already exists for this cycle.</Text>
+            </Animatable.View>
+          )}
+
           <Text style={styles.inputLabel}>Active Election Registry</Text>
           <View style={styles.pickerContainer}>
             {loadingElections ? <ActivityIndicator color={UNIVERSITY_RED} /> : (
@@ -251,24 +303,17 @@ export default function ApplyCandidateScreen() {
             )}
           </View>
 
-          {hasAlreadyApplied && (
-            <View style={styles.warningBox}>
-              <MaterialCommunityIcons name="shield-alert" size={20} color="#B71C1C" />
-              <Text style={styles.warningText}>Collision detected: Candidacy already exists for this cycle.</Text>
-            </View>
-          )}
-
-          <Text style={styles.inputLabel}>Select Designation</Text>
+          <Text style={styles.inputLabel}>Available Designations</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
             {loadingPositions ? <ActivityIndicator color={UNIVERSITY_RED} /> : (
-              positionData?.positions?.map((p) => (
+              positionData?.positions?.map((p: any) => (
                 <TouchableOpacity 
                   key={p.id} 
                   disabled={hasAlreadyApplied}
                   style={[
                     styles.posCard, 
                     form.position_id === p.id && styles.posCardActive,
-                    hasAlreadyApplied && { opacity: 0.5 }
+                    hasAlreadyApplied && { opacity: 0.4, backgroundColor: '#EEE' }
                   ]}
                   onPress={() => setForm({...form, position_id: p.id})}
                 >
@@ -286,8 +331,8 @@ export default function ApplyCandidateScreen() {
 
           <Text style={styles.inputLabel}>Constituency/Department</Text>
           <TextInput 
-            style={[styles.input, hasAlreadyApplied && styles.disabledInput]} 
-            editable={!hasAlreadyApplied}
+            style={[styles.input, (hasAlreadyApplied || isUploading) && styles.disabledInput]} 
+            editable={!hasAlreadyApplied && !isUploading}
             value={form.school} 
             onChangeText={(v) => setForm({...form, school: v})}
             placeholder="Enter constituency..."
@@ -295,7 +340,7 @@ export default function ApplyCandidateScreen() {
 
           <Text style={[styles.inputLabel, { marginTop: 20 }]}>Biometric Portrait (ID Photo)</Text>
           <TouchableOpacity 
-            style={[styles.imageUploadBox, hasAlreadyApplied && { opacity: 0.5 }]} 
+            style={[styles.imageUploadBox, (hasAlreadyApplied || isUploading) && { opacity: 0.5 }]} 
             onPress={pickImage}
             disabled={hasAlreadyApplied || isUploading}
           >
@@ -317,7 +362,7 @@ export default function ApplyCandidateScreen() {
 
           <Text style={styles.inputLabel}>Policy Manifesto</Text>
           <TextInput 
-            style={[styles.input, styles.textArea, hasAlreadyApplied && styles.disabledInput]} 
+            style={[styles.input, styles.textArea, (hasAlreadyApplied || isUploading) && styles.disabledInput]} 
             editable={!hasAlreadyApplied && !isUploading}
             multiline 
             placeholder="Input your vision for the student body..."
@@ -328,10 +373,10 @@ export default function ApplyCandidateScreen() {
           <TouchableOpacity 
             style={[
               styles.submitBtn, 
-              (isSubmitting || hasAlreadyApplied || isUploading) && { backgroundColor: '#AAA' }
+              (isSubmitting || hasAlreadyApplied || isUploading || !form.position_id) && { backgroundColor: '#AAA' }
             ]} 
             onPress={() => setConfirmModalVisible(true)}
-            disabled={isSubmitting || hasAlreadyApplied || isUploading}
+            disabled={isSubmitting || hasAlreadyApplied || isUploading || !form.position_id}
           >
             {isSubmitting || isUploading ? (
               <ActivityIndicator color="#FFF" />
@@ -340,7 +385,7 @@ export default function ApplyCandidateScreen() {
                 <Text style={styles.submitBtnText}>
                   {hasAlreadyApplied ? "LOCKED" : "INITIALIZE CANDIDACY"}
                 </Text>
-                <MaterialCommunityIcons name="orbit-variant" size={20} color="#FFF" style={{ marginLeft: 10 }} />
+                <MaterialCommunityIcons name={hasAlreadyApplied ? "lock" : "orbit-variant"} size={20} color="#FFF" style={{ marginLeft: 10 }} />
               </>
             )}
           </TouchableOpacity>
@@ -355,27 +400,22 @@ export default function ApplyCandidateScreen() {
               <MaterialCommunityIcons name="shield-lock" size={30} color={UNIVERSITY_RED} />
               <Text style={styles.modalTitle}>Protocol Authentication</Text>
             </View>
-            
             <Text style={styles.modalMessage}>
               You are about to broadcast your candidacy to the secure registry. This action is immutable and will undergo audit by the Electoral Commission.
             </Text>
-
             <View style={styles.summaryBox}>
-                <Text style={styles.summaryText}>POSITION: {positionData?.positions?.find(p => p.id === form.position_id)?.name || "Not Selected"}</Text>
+                <Text style={styles.summaryText}>POSITION: {positionData?.positions?.find((p:any) => p.id === form.position_id)?.name || "Not Selected"}</Text>
                 <Text style={styles.summaryText}>SCHOOL: {form.school}</Text>
             </View>
-            
             <TouchableOpacity style={styles.saveBtn} onPress={handleSubmit}>
               <Text style={styles.saveBtnText}>CONFIRM & BROADCAST</Text>
             </TouchableOpacity>
-
             <TouchableOpacity style={styles.cancelBtn} onPress={() => setConfirmModalVisible(false)}>
               <Text style={styles.cancelBtnText}>ABORT MISSION</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
-
     </SafeAreaView>
   );
 }
