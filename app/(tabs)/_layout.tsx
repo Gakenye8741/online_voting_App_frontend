@@ -12,6 +12,7 @@ import * as Animatable from "react-native-animatable";
 import { BlurView } from 'expo-blur'; 
 import * as Haptics from 'expo-haptics';
 import PagerView from 'react-native-pager-view';
+import NetInfo from '@react-native-community/netinfo'; // Added for Offline detection
 
 // Notification Imports
 import * as Notifications from 'expo-notifications';
@@ -21,7 +22,7 @@ import Constants from 'expo-constants';
 // Import API 
 import { notificationApi, useRegisterPushTokenMutation } from "@/src/store/Apis/Notification.Api";
 
-// Screen Imports - Ensure these paths match your project structure
+// Screen Imports
 import IndexScreen from "./index";
 import CandidateScreen from "./Candidate";
 import VoteScreen from "./vote";
@@ -55,8 +56,21 @@ function LockGuard({ children }: { children: React.ReactNode }) {
   
   const [isLocked, setIsLocked] = useState(false);
   const [isOverlayVisible, setIsOverlayVisible] = useState(false);
+  const [isOffline, setIsOffline] = useState(false); // New state for offline
 
   useEffect(() => {
+    // --- 1. CONNECTIVITY LISTENER ---
+    const unsubscribeNet = NetInfo.addEventListener(state => {
+      const offlineStatus = state.isConnected === false;
+      if (offlineStatus !== isOffline) {
+        setIsOffline(offlineStatus);
+        if (offlineStatus) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        }
+      }
+    });
+
+    // --- 2. NOTIFICATIONS SETUP ---
     const setupNotifications = async () => {
       const token = await registerForPushNotificationsAsync();
       if (token && user?.userId) {
@@ -67,7 +81,6 @@ function LockGuard({ children }: { children: React.ReactNode }) {
         }
       }
     };
-
     setupNotifications();
 
     notificationListener.current = Notifications.addNotificationReceivedListener(() => {
@@ -84,6 +97,7 @@ function LockGuard({ children }: { children: React.ReactNode }) {
       }
     });
 
+    // --- 3. APP STATE LISTENER ---
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       if (nextAppState === "inactive" || nextAppState === "background") {
         if (!isOverlayVisible) {
@@ -100,12 +114,14 @@ function LockGuard({ children }: { children: React.ReactNode }) {
     };
 
     const subscription = AppState.addEventListener("change", handleAppStateChange);
+    
     return () => {
       subscription.remove();
+      unsubscribeNet(); // Cleanup network listener
       if (notificationListener.current) notificationListener.current.remove();
       if (responseListener.current) responseListener.current.remove();
     };
-  }, [isOverlayVisible, user?.userId]);
+  }, [isOverlayVisible, user?.userId, isOffline]);
 
   const checkSessionTimeout = () => {
     if (backgroundTime.current) {
@@ -142,7 +158,16 @@ function LockGuard({ children }: { children: React.ReactNode }) {
 
   return (
     <View style={{ flex: 1 }}>
+      {/* OFFLINE STATUS BANNER */}
+      {isOffline && (
+        <Animatable.View animation="fadeInDown" duration={400} style={lockStyles.offlineBanner}>
+          <MaterialCommunityIcons name="wifi-strength-off-outline" size={14} color="#fff" />
+          <Text style={lockStyles.offlineText}>YOU ARE CURRENTLY OFFLINE</Text>
+        </Animatable.View>
+      )}
+
       {children}
+
       <Modal visible={isLocked || isOverlayVisible} animationType="fade" transparent={true}>
         <BlurView intensity={120} tint="light" style={StyleSheet.absoluteFill}>
           <View style={lockStyles.container}>
@@ -177,6 +202,8 @@ function LockGuard({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ... Rest of your registerForPushNotificationsAsync and TabsLayout remains identical ...
+
 async function registerForPushNotificationsAsync() {
   let token;
   if (Platform.OS === 'android') {
@@ -201,7 +228,6 @@ async function registerForPushNotificationsAsync() {
   return token;
 }
 
-// --- MAIN LAYOUT WITH SWIPE ---
 export default function TabsLayout() {
   const theme = useSelector((state: RootState) => state.theme.mode);
   const accent = useSelector((state: RootState) => state.theme.accent);
@@ -223,7 +249,6 @@ export default function TabsLayout() {
     <AppLayout>
       <LockGuard>
         <View style={{ flex: 1, backgroundColor }}>
-          {/* THE SWIPABLE CONTENT AREA */}
           <PagerView
             ref={pagerRef}
             style={{ flex: 1 }}
@@ -237,37 +262,16 @@ export default function TabsLayout() {
             <View key="5"><MoreScreen /></View>
           </PagerView>
 
-          {/* CUSTOM TAB BAR REPLACING THE STANDARD <Tabs /> */}
           <View style={[styles.tabBar, { 
             backgroundColor, 
             paddingBottom: insets.bottom + 10,
             borderTopColor: theme === "dark" ? "#333" : "#e5e7eb" 
           }]}>
-            <TabButton 
-              label="Home" icon="home" type="Ionicons" 
-              active={activeTab === 0} accent={accent} inactive={inactiveColor} 
-              onPress={() => onTabPress(0)} 
-            />
-            <TabButton 
-              label="Candidates" icon="account-group" type="Material" 
-              active={activeTab === 1} accent={accent} inactive={inactiveColor} 
-              onPress={() => onTabPress(1)} 
-            />
-            <TabButton 
-              label="Vote" icon="vote" type="Material" 
-              active={activeTab === 2} accent={accent} inactive={inactiveColor} 
-              onPress={() => onTabPress(2)} 
-            />
-            <TabButton 
-              label="Results" icon="bar-chart" type="Ionicons" 
-              active={activeTab === 3} accent={accent} inactive={inactiveColor} 
-              onPress={() => onTabPress(3)} 
-            />
-            <TabButton 
-              label="More" icon="ellipsis-horizontal" type="Ionicons" 
-              active={activeTab === 4} accent={accent} inactive={inactiveColor} 
-              onPress={() => onTabPress(4)} 
-            />
+            <TabButton label="Home" icon="home" type="Ionicons" active={activeTab === 0} accent={accent} inactive={inactiveColor} onPress={() => onTabPress(0)} />
+            <TabButton label="Candidates" icon="account-group" type="Material" active={activeTab === 1} accent={accent} inactive={inactiveColor} onPress={() => onTabPress(1)} />
+            <TabButton label="Vote" icon="vote" type="Material" active={activeTab === 2} accent={accent} inactive={inactiveColor} onPress={() => onTabPress(2)} />
+            <TabButton label="Results" icon="bar-chart" type="Ionicons" active={activeTab === 3} accent={accent} inactive={inactiveColor} onPress={() => onTabPress(3)} />
+            <TabButton label="More" icon="ellipsis-horizontal" type="Ionicons" active={activeTab === 4} accent={accent} inactive={inactiveColor} onPress={() => onTabPress(4)} />
           </View>
         </View>
       </LockGuard>
@@ -275,7 +279,6 @@ export default function TabsLayout() {
   );
 }
 
-// --- HELPER COMPONENT FOR TAB BUTTONS ---
 function TabButton({ label, icon, type, active, accent, inactive, onPress }: any) {
   const color = active ? accent : inactive;
   return (
@@ -291,54 +294,38 @@ function TabButton({ label, icon, type, active, accent, inactive, onPress }: any
 }
 
 const styles = StyleSheet.create({
-  tabBar: {
-    flexDirection: 'row',
-    height: 70,
-    borderTopWidth: 0.5,
-    paddingTop: 10,
-  },
-  tabItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    marginTop: 2,
-  }
+  tabBar: { flexDirection: 'row', height: 70, borderTopWidth: 0.5, paddingTop: 10 },
+  tabItem: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  tabLabel: { fontSize: 11, fontWeight: "700", marginTop: 2 }
 });
 
 const lockStyles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", alignItems: "center", padding: 20 },
-  inner: { 
-    alignItems: "center", 
-    width: '100%', 
-    backgroundColor: 'rgba(255, 255, 255, 0.96)', 
-    padding: 35, 
-    borderRadius: 35, 
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 10 
+  // ADDED OFFLINE STYLES HERE
+  offlineBanner: {
+    backgroundColor: "#EF4444",
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 10,
+    gap: 8,
   },
+  offlineText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.5,
+  },
+  // YOUR EXISTING LOCK STYLES
+  container: { flex: 1, justifyContent: "center", alignItems: "center", padding: 20 },
+  inner: { alignItems: "center", width: '100%', backgroundColor: 'rgba(255, 255, 255, 0.96)', padding: 35, borderRadius: 35, elevation: 10 },
   brandSection: { alignItems: 'center', marginBottom: 20 },
   uniName: { fontSize: 13, fontWeight: '900', color: '#c8102e', letterSpacing: 2, marginTop: 12 },
   lineDivider: { height: 2, width: 40, backgroundColor: '#c8102e', marginTop: 6 },
   iconCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: "#c8102e", justifyContent: "center", alignItems: "center" },
   title: { color: "#111827", fontSize: 26, fontWeight: "900", marginBottom: 8 },
-  subtitle: { color: "#6B7280", fontSize: 14, textAlign: "center", marginBottom: 35, lineHeight: 20, paddingHorizontal: 10 },
+  subtitle: { color: "#6B7280", fontSize: 14, textAlign: "center", marginBottom: 35, lineHeight: 20 },
   buttonWrapper: { width: '100%', gap: 12 },
-  btn: { 
-    flexDirection: 'row', 
-    backgroundColor: "#111827", 
-    paddingVertical: 18, 
-    borderRadius: 20, 
-    width: '100%', 
-    justifyContent: 'center', 
-    alignItems: 'center' 
-  },
+  btn: { flexDirection: 'row', backgroundColor: "#111827", paddingVertical: 18, borderRadius: 20, width: '100%', justifyContent: 'center', alignItems: 'center' },
   btnText: { color: "#fff", fontWeight: "800", fontSize: 15, letterSpacing: 0.5 },
   secondaryBtn: { paddingVertical: 10, alignItems: 'center' },
   secondaryBtnText: { color: '#c8102e', fontSize: 14, fontWeight: '800' },

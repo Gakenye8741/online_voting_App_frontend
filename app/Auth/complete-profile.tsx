@@ -102,10 +102,7 @@ export default function CompleteProfile() {
         expected_graduation: formatDate(expectedGraduation),
       }).unwrap();
 
-      // Update storage with the new user profile data
       await AsyncStorage.setItem("user", JSON.stringify(result.user));
-      
-      // Redirect to the secret code page instead of tabs
       router.replace("/Auth/secret-code");
     } catch (err: any) {
       Alert.alert("Error", err.data?.message || err.message || "Failed to update profile");
@@ -115,37 +112,36 @@ export default function CompleteProfile() {
   return (
     <AppLayout>
       <KeyboardAvoidingView
-        style={{ flex: 1, backgroundColor: "#fff" }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+        style={styles.flexContainer}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView
-          contentContainerStyle={styles.container}
+          contentContainerStyle={styles.scrollContainer}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.innerWrapper}>
             <Animatable.Image
-              animation="bounceIn"
-              duration={1500}
+              animation="fadeIn"
+              duration={1000}
               source={require('@/assets/images/Laikipia-logo.png')}
               style={styles.logo}
             />
 
-            <Animatable.Text animation="fadeInDown" style={styles.title}>
+            <Animatable.Text animation="fadeIn" duration={1000} style={styles.title}>
               Complete Your Profile
             </Animatable.Text>
             
-            <Animatable.Text animation="fadeIn" style={styles.regNoBadge}>
-              Registration No: {regNo || "Loading..."}
-            </Animatable.Text>
+            <Animatable.View animation="fadeIn" duration={1000} style={styles.regNoBadge}>
+              <Text style={styles.regNoText}>Registration No: {regNo || "Loading..."}</Text>
+            </Animatable.View>
 
-            <Animatable.Text animation="fadeInDown" style={styles.subtitle}>
+            <Animatable.Text animation="fadeIn" duration={1000} style={styles.subtitle}>
               Please fill in your details. Your information will remain private.
             </Animatable.Text>
 
-            <View style={styles.formContainer}>
-              <Animatable.View animation="fadeInUp" delay={200} style={styles.inputContainer}>
+            <Animatable.View animation="fadeInUp" duration={800} style={styles.formContainer}>
+              <View style={styles.inputContainer}>
                 <Text style={styles.label}>Full Name</Text>
                 <TextInput
                   style={styles.input}
@@ -154,9 +150,9 @@ export default function CompleteProfile() {
                   placeholder="Enter your full name"
                   placeholderTextColor="#999"
                 />
-              </Animatable.View>
+              </View>
 
-              <Animatable.View animation="fadeInUp" delay={400} style={styles.inputContainer}>
+              <View style={styles.inputContainer}>
                 <Text style={styles.label}>School</Text>
                 <View style={styles.pickerContainer}>
                   <Picker
@@ -171,9 +167,9 @@ export default function CompleteProfile() {
                     ))}
                   </Picker>
                 </View>
-              </Animatable.View>
+              </View>
 
-              <Animatable.View animation="fadeInUp" delay={600} style={styles.inputContainer}>
+              <View style={styles.inputContainer}>
                 <Text style={styles.label}>Email</Text>
                 <TextInput
                   style={styles.input}
@@ -184,9 +180,9 @@ export default function CompleteProfile() {
                   placeholderTextColor="#999"
                   autoCapitalize="none"
                 />
-              </Animatable.View>
+              </View>
 
-              <Animatable.View animation="fadeInUp" delay={800} style={styles.inputContainer}>
+              <View style={styles.inputContainer}>
                 <Text style={styles.label}>Expected Graduation</Text>
                 <TouchableOpacity
                   style={styles.input}
@@ -205,18 +201,16 @@ export default function CompleteProfile() {
                     onChange={handleDateChange}
                   />
                 )}
-              </Animatable.View>
+              </View>
 
-              <Animatable.View animation="fadeInUp" delay={1000}>
-                <TouchableOpacity
-                  style={styles.button}
-                  onPress={handleSubmit}
-                  disabled={isUpdating}
-                >
-                  {isUpdating ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Submit Details</Text>}
-                </TouchableOpacity>
-              </Animatable.View>
-            </View>
+              <TouchableOpacity
+                style={styles.button}
+                onPress={handleSubmit}
+                disabled={isUpdating}
+              >
+                {isUpdating ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Submit Details</Text>}
+              </TouchableOpacity>
+            </Animatable.View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -225,33 +219,29 @@ export default function CompleteProfile() {
 }
 
 const styles = StyleSheet.create({
-  container: { 
+  flexContainer: { flex: 1, backgroundColor: "#fff" },
+  scrollContainer: { 
     flexGrow: 1, 
     justifyContent: "center",
-    backgroundColor: "#fff",
   },
   innerWrapper: {
     width: '100%',
     alignItems: 'center',
     paddingHorizontal: 25, 
-    paddingVertical: 30,
-    minHeight: screenHeight * 0.8,
-    justifyContent: 'center'
+    paddingVertical: 40,
   },
   logo: { width: 90, height: 90, marginBottom: 15 },
   title: { fontSize: 24, fontWeight: "bold", color: "#c8102e", textAlign: "center", marginBottom: 5 },
   regNoBadge: { 
-    fontSize: 14, 
-    color: "#666", 
     backgroundColor: "#f5f5f5", 
     paddingHorizontal: 12, 
     paddingVertical: 6, 
     borderRadius: 20, 
     marginBottom: 15,
-    fontWeight: "700",
     borderWidth: 1,
     borderColor: "#eee"
   },
+  regNoText: { fontSize: 14, color: "#666", fontWeight: "700" },
   subtitle: { fontSize: 14, color: "#555", textAlign: "center", marginBottom: 25, lineHeight: 20 },
   formContainer: { width: "100%" },
   inputContainer: { marginBottom: 15 },

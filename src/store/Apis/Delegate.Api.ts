@@ -3,11 +3,17 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // -------------------- TYPES --------------------
 export interface Delegate {
-  delegate_id: string; // The UUID of the delegate slot
+  delegate_id: string; 
   name: string;
   reg_no: string;
   school: string;
   coalition_id: string | null;
+}
+
+// Fixed to match your JSON: { "count": 4, "data": [...] }
+export interface DelegateRosterResponse {
+  count: number;
+  data: Delegate[];
 }
 
 /**
@@ -18,7 +24,7 @@ export interface DelegateVoteRequest {
   election_id: string;
   coalition_id: string;
   position_id: string;
-  secret_code: string; // <--- Included for alphanumeric security
+  secret_code: string; 
 }
 
 export interface DelegateVoteResponse {
@@ -34,7 +40,6 @@ export interface DelegateVoteResponse {
   };
 }
 
-// Type for checking personal vote status
 export interface MyDelegateVoteResponse {
   voted: boolean;
   message?: string;
@@ -47,10 +52,6 @@ export interface MyDelegateVoteResponse {
     transaction_hash: string;
     created_at: string;
   };
-}
-
-export interface DelegateRosterResponse {
-  delegates: Delegate[];
 }
 
 export interface ExecutiveTally {
@@ -107,11 +108,10 @@ export const delegatesApi = createApi({
     // -------------------- 4. CAST DELEGATE VOTE (Phase 2) --------------------
     castDelegateVote: builder.mutation<DelegateVoteResponse, DelegateVoteRequest>({
       query: (body) => ({
-        url: "vote", // Matches POST {{baseUrl}}/delegates/vote
+        url: "vote", 
         method: "POST",
         body,
       }),
-      // Invalidates tags to refresh the UI with the new transaction hash
       invalidatesTags: ["Results", "MyVote"],
     }),
 

@@ -29,10 +29,25 @@ export const store = configureStore({
     [votesApi.reducerPath]: votesApi.reducer,
     [delegatesApi.reducerPath]: delegatesApi.reducer,
     [appealsApi.reducerPath]: appealsApi.reducer,
-
   },
   middleware: (getDefaultMiddleware) =>
-    getDefaultMiddleware().concat(authApi.middleware,candidatesApi.middleware,electionsApi.middleware,applicationApi.middleware,positionApi.middleware, usersApi.middleware, notificationApi.middleware,coalitionApi.middleware, votesApi.middleware, delegatesApi.middleware,appealsApi.middleware),
+    getDefaultMiddleware({
+      // Increase threshold to stop the "32ms" warning lag
+      immutableCheck: { warnAfter: 128 }, 
+      serializableCheck: false, // Often needed when dealing with complex blockchain/date objects
+    }).concat(
+      authApi.middleware,
+      candidatesApi.middleware,
+      electionsApi.middleware,
+      applicationApi.middleware,
+      positionApi.middleware, 
+      usersApi.middleware, 
+      notificationApi.middleware,
+      coalitionApi.middleware, 
+      votesApi.middleware, 
+      delegatesApi.middleware,
+      appealsApi.middleware
+    ),
 });
 
 export type RootState = ReturnType<typeof store.getState>;

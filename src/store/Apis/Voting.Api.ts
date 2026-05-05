@@ -22,11 +22,18 @@ export interface VoteRecord {
   createdAt: string;
 }
 
+export interface DisputeParams {
+  regNo: string;
+  electionId: string;
+  positionId: string;
+}
+
 // -------------------- API --------------------
 export const votesApi = createApi({
   reducerPath: "votesApi",
   baseQuery: fetchBaseQuery({
     baseUrl: "https://laikipiavotingsystem-f3aabefwhrendaae.southafricanorth-01.azurewebsites.net/api",
+    timeout: 60000, // Blockchain anchoring is slow, so we keep this high
     prepareHeaders: async (headers, { getState }) => {
       const state = getState() as any;
       let token = state.auth?.token;
@@ -45,33 +52,45 @@ export const votesApi = createApi({
   }),
   tagTypes: ["Votes", "Results", "MyHistory"],
   endpoints: (builder) => ({
-    // 1. Cast a Single Vote (Alphanumeric Secret Code Support)
+    // 1. Cast a Single Vote (voterAuth)
     castVote: builder.mutation<{message: string, vote: VoteRecord}, SingleVotePayload>({
-      query: (body) => ({ url: "/votes/cast", method: "POST", body }),
+      query: (body) => ({ 
+        url: "/votes/cast", 
+        method: "POST", 
+        body 
+      }),
+      extraOptions: { maxRetries: 0 },
       invalidatesTags: ["Results", "MyHistory", "Votes"],
     }),
 
-
-
-    // 3. Get My Voting History
+    // 2. Get My Voting History (voterAuth)
+    // UPDATED: Path changed from /my-votes/ to /my-ballot/ to match Express Router
     getMyVotes: builder.query<{ data: { votes: VoteRecord[], totalCast: number } }, string>({
-      query: (electionId) => `/votes/my-votes/${electionId}`,
+      query: (electionId) => `/votes/my-ballot/${electionId}`,
       providesTags: ["MyHistory"],
+      keepUnusedDataFor: 0, 
     }),
 
-    // 4. Get Live Election Results
+    // 3. Get Live Election Results (Hybrid)
     getElectionResults: builder.query<{ data: any[] }, string>({
       query: (electionId) => `/votes/results/${electionId}`,
       providesTags: ["Results"],
     }),
 
-    // 5. Admin: Candidate Audit
+    // 4. Admin: Dispute Verification (adminAuth)
+    // NEW: Handles query parameters for dispute resolution
+    verifyDispute: builder.query<{ success: boolean; data: any }, DisputeParams>({
+      query: ({ regNo, electionId, positionId }) => 
+        `/votes/verify-dispute?regNo=${regNo}&electionId=${electionId}&positionId=${positionId}`,
+    }),
+
+    // 5. Admin: Candidate Audit (adminAuth)
     getCandidateAudit: builder.query<{ data: VoteRecord[] }, string>({
       query: (candidateId) => `/votes/audit/candidate/${candidateId}`,
       providesTags: ["Votes"],
     }),
 
-    // 6. Admin: Election Audit
+    // 6. Admin: Election Audit (adminAndDeanAuth)
     getElectionAudit: builder.query<{ data: VoteRecord[] }, string>({
       query: (electionId) => `/votes/audit/election/${electionId}`,
       providesTags: ["Votes"],
@@ -83,6 +102,7 @@ export const {
   useCastVoteMutation,
   useGetMyVotesQuery,
   useGetElectionResultsQuery,
+  useVerifyDisputeQuery, // New hook for the dispute route
   useGetCandidateAuditQuery,
   useGetElectionAuditQuery,
 } = votesApi;

@@ -144,7 +144,7 @@ const ParticipationTracker = ({ totalVotes, totalVoters }: { totalVotes: number;
 
 // --- Election Roadmap Component ---
 const ElectionRoadmap = ({ status }: { status: string }) => {
-  const phases = ["Upcoming", "Ongoing", "Tallying", "Ended"];
+  const phases = ["Upcoming", "Standard voting", "Delegate voting", "Ended"];
   const normalizedStatus = status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
   const currentIdx = phases.indexOf(normalizedStatus);
 
@@ -314,9 +314,9 @@ export default function Home() {
     if (!latestElection) return "upcoming";
     const now = new Date().getTime();
     if (now < new Date(latestElection.start_date).getTime()) return "upcoming";
-    if (now < new Date(latestElection.end_date).getTime()) return "ongoing";
-    if (now < new Date(latestElection.delegate_end_date).getTime()) return "tallying";
-    return "ended";
+    if (now < new Date(latestElection.end_date).getTime()) return "Standard voting";
+    if (now < new Date(latestElection.delegate_end_date).getTime()) return "Delegate voting";
+    return "Ended";
   }, [latestElection]);
 
   const remainingElectionsCount = useMemo(() => {

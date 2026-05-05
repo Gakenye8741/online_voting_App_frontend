@@ -85,7 +85,6 @@ export default function CandidateDetailPage() {
   
   const { 
     data: slateData, 
-    isLoading: loadingSlate, 
     refetch: refetchSlate 
   } = useGetCoalitionFullSlateQuery(candidate?.coalition_id ?? "", { 
     skip: !candidate?.coalition_id 
@@ -97,12 +96,6 @@ export default function CandidateDetailPage() {
 
   const positionName = positionData?.position?.name || "Position";
   const isPresident = positionName.toLowerCase().includes("president") && !positionName.toLowerCase().includes("vice");
-
-  const filteredCoalitions = useMemo(() => {
-    return availableCoalitions?.coalitions?.filter(
-      (c: any) => c.election_id === activeElectionId
-    ) ?? [];
-  }, [availableCoalitions, activeElectionId]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -131,22 +124,30 @@ export default function CandidateDetailPage() {
   };
 
   const handleCreateSubmit = async () => {
-    if (!coalitionForm.name || !coalitionForm.acronym) {
-      return Alert.alert("Missing Fields", "Please provide at least a name and acronym.");
+    if (!coalitionForm.name.trim() || !coalitionForm.acronym.trim()) {
+      return Alert.alert("Missing Fields", "Please provide a coalition name and acronym.");
     }
+    if (!activeElectionId) {
+      return Alert.alert("Error", "No active election detected for this profile.");
+    }
+
     try {
       await createCoalition({
         creatorCandidateId: candidate!.id,
         coalition: {
-          election_id: activeElectionId!,
-          ...coalitionForm,
+          election_id: activeElectionId,
+          name: coalitionForm.name,
+          acronym: coalitionForm.acronym,
+          slogan: coalitionForm.slogan,
+          color_code: coalitionForm.color_code,
+          description: coalitionForm.description,
         }
       }).unwrap();
-      Alert.alert("Success", "Coalition created successfully!");
+      Alert.alert("Success", "Coalition created and joined successfully!");
       setShowCreateModal(false);
       onRefresh();
     } catch (err: any) {
-      Alert.alert("Error", err?.data?.message || "Creation failed.");
+      Alert.alert("Creation Failed", err?.data?.message || "Verify your candidate status and try again.");
     }
   };
 
@@ -156,30 +157,30 @@ export default function CandidateDetailPage() {
         candidate_id: candidate!.id,
         coalition_id: coalitionId
       }).unwrap();
-      Alert.alert("Success", "Joined coalition successfully!");
+      Alert.alert("Success", "You are now part of the alliance!");
       setShowJoinModal(false);
       onRefresh();
     } catch (err: any) {
-      Alert.alert("Error", err?.data?.message || "Join failed.");
+      Alert.alert("Join Failed", err?.data?.message || "This position might already be filled in that coalition.");
     }
   };
 
   const handleLeaveCoalition = () => {
     Alert.alert(
       "Leave Coalition",
-      "Are you sure you want to exit this alliance?",
+      "Are you sure you want to exit this alliance? This will remove you from the team slate.",
       [
         { text: "Cancel", style: "cancel" },
         { 
-          text: "Leave", 
+          text: "Confirm Exit", 
           style: "destructive", 
           onPress: async () => {
             try {
               await leaveCoalition(candidate!.id).unwrap();
-              Alert.alert("Updated", "You have left the coalition.");
+              Alert.alert("Updated", "You are no longer in a coalition.");
               onRefresh();
             } catch (err: any) {
-              Alert.alert("Error", err?.data?.message || "Failed to leave.");
+              Alert.alert("Error", "Failed to leave coalition. Try again later.");
             }
           } 
         }
@@ -191,7 +192,7 @@ export default function CandidateDetailPage() {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color={UNIVERSITY_RED} />
-        <Text style={{ marginTop: 10, color: '#666' }}>Initializing Secure Mainframe...</Text>
+        <Text style={{ marginTop: 10, color: '#666' }}>Fetching Profile Details...</Text>
       </View>
     );
   }
@@ -200,8 +201,7 @@ export default function CandidateDetailPage() {
     return (
       <View style={styles.centered}>
         <MaterialCommunityIcons name="account-search-outline" size={60} color="#ccc" />
-        <Text style={styles.devName}>Profile Not Found</Text>
-        <Text style={styles.bioText}>Server may be sleeping or profile is missing.</Text>
+        <Text style={styles.devName}>Profile Unavailable</Text>
         <TouchableOpacity style={[styles.submitBtn, { paddingHorizontal: 30 }]} onPress={() => onRefresh()}>
           <Text style={styles.submitBtnText}>RETRY SYNC</Text>
         </TouchableOpacity>
@@ -222,14 +222,14 @@ export default function CandidateDetailPage() {
             </View>
             <ScrollView showsVerticalScrollIndicator={false}>
               <Text style={styles.inputLabel}>Full Name</Text>
-              <TextInput style={styles.input} placeholder="The Progressive Alliance" onChangeText={(v) => setCoalitionForm({...coalitionForm, name: v})} />
+              <TextInput style={styles.input} placeholder="The Progressive Alliance" value={coalitionForm.name} onChangeText={(v) => setCoalitionForm({...coalitionForm, name: v})} />
               <Text style={styles.inputLabel}>Acronym</Text>
-              <TextInput style={styles.input} placeholder="TPA" onChangeText={(v) => setCoalitionForm({...coalitionForm, acronym: v})} />
+              <TextInput style={styles.input} placeholder="TPA" value={coalitionForm.acronym} onChangeText={(v) => setCoalitionForm({...coalitionForm, acronym: v})} />
               <Text style={styles.inputLabel}>Slogan</Text>
-              <TextInput style={styles.input} placeholder="Moving Forward Together" onChangeText={(v) => setCoalitionForm({...coalitionForm, slogan: v})} />
+              <TextInput style={styles.input} placeholder="Moving Forward Together" value={coalitionForm.slogan} onChangeText={(v) => setCoalitionForm({...coalitionForm, slogan: v})} />
               <Text style={styles.inputLabel}>Description</Text>
-              <TextInput style={[styles.input, {height: 80}]} multiline placeholder="Vision and goals..." onChangeText={(v) => setCoalitionForm({...coalitionForm, description: v})} />
-              <TouchableOpacity style={styles.submitBtn} onPress={handleCreateSubmit}>
+              <TextInput style={[styles.input, {height: 80}]} multiline placeholder="Vision and goals..." value={coalitionForm.description} onChangeText={(v) => setCoalitionForm({...coalitionForm, description: v})} />
+              <TouchableOpacity style={styles.submitBtn} onPress={handleCreateSubmit} disabled={isCreating}>
                 {isCreating ? <ActivityIndicator color="#FFF" /> : <Text style={styles.submitBtnText}>CREATE COALITION</Text>}
               </TouchableOpacity>
             </ScrollView>
@@ -250,14 +250,15 @@ export default function CandidateDetailPage() {
             </Text>
             <ScrollView style={{ marginTop: 15 }}>
               {loadingList ? <ActivityIndicator color={DARK_NAVY} /> : 
-                filteredCoalitions.length > 0 ? (
-                  filteredCoalitions.map((c: any) => (
+                (availableCoalitions?.coalitions?.length ?? 0) > 0 ? (
+                  availableCoalitions?.coalitions.map((c: any) => (
                     <TouchableOpacity key={c.id} style={styles.joinItem} onPress={() => handleJoinSelection(c.id)}>
                       <View style={[styles.colorDot, { backgroundColor: c.color_code || DARK_NAVY }]} />
-                      <View>
+                      <View style={{flex: 1}}>
                         <Text style={styles.joinItemName}>{c.name} ({c.acronym})</Text>
-                        <Text style={styles.joinItemSlogan}>{c.slogan}</Text>
+                        <Text style={styles.joinItemSlogan} numberOfLines={1}>{c.slogan}</Text>
                       </View>
+                      <Ionicons name="chevron-forward" size={18} color="#CCC" />
                     </TouchableOpacity>
                   ))
                 ) : (
@@ -354,22 +355,18 @@ export default function CandidateDetailPage() {
                     <Text style={styles.sectionTitle}>Coalition Slate</Text>
                     <View style={styles.titleLine} />
                 </View>
-                {loadingSlate ? (
-                    <ActivityIndicator color={DARK_NAVY} />
-                ) : (
-                    slateData?.coalition.candidates.map((member: any) => (
-                        <View key={member.id} style={styles.memberCard}>
-                            <Image source={{ uri: member.photo_url || "https://via.placeholder.com/150" }} style={styles.memberAvatar} />
-                            <View style={styles.memberInfo}>
-                                <Text style={styles.memberName}>{member.name}</Text>
-                                <Text style={styles.memberPosition}>{member.position.name}</Text>
-                            </View>
-                            {member.id === candidate.id && (
-                                <View style={styles.selfBadge}><Text style={styles.selfText}>YOU</Text></View>
-                            )}
+                {slateData?.coalition.candidates.map((member: any) => (
+                    <View key={member.id} style={styles.memberCard}>
+                        <Image source={{ uri: member.photo_url || "https://via.placeholder.com/150" }} style={styles.memberAvatar} />
+                        <View style={styles.memberInfo}>
+                            <Text style={styles.memberName}>{member.name}</Text>
+                            <Text style={styles.memberPosition}>{member.position.name}</Text>
                         </View>
-                    ))
-                )}
+                        {member.id === candidate.id && (
+                            <View style={styles.selfBadge}><Text style={styles.selfText}>YOU</Text></View>
+                        )}
+                    </View>
+                ))}
             </View>
         )}
 
@@ -413,16 +410,7 @@ const DataBox = ({ icon, label, val, color }: any) => (
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#FAFAFA" },
   centered: { flex: 1, justifyContent: "center", alignItems: "center", padding: 20 },
-  navbar: { 
-    flexDirection: "row", 
-    alignItems: "center", 
-    justifyContent: "space-between", 
-    paddingHorizontal: 16, 
-    height: 70, 
-    backgroundColor: UNIVERSITY_WHITE, 
-    borderBottomWidth: 1, 
-    borderBottomColor: "#eee" 
-  },
+  navbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, height: 70, backgroundColor: UNIVERSITY_WHITE, borderBottomWidth: 1, borderBottomColor: "#eee" },
   headerLeft: { flexDirection: 'row', alignItems: 'center' },
   backChevron: { marginRight: 8 },
   logo: { width: 42, height: 42, resizeMode: 'contain', marginRight: 10 },
